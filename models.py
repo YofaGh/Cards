@@ -1,13 +1,21 @@
-class Card:
-    def __init__(self, type_name, type_unicode_char, number, ord, type):
-        self.type_unicode_char = type_unicode_char
-        self.type_name = type_name
-        self.number = number
-        self.ord = ord
-        self.type = type
+from dataclasses import dataclass
+
+@dataclass
+class Hokm:
+    name: str
+    unicode_char: str
 
     def __repr__(self):
-        return f'{self.type_unicode_char} {self.number}'
+        return f'{self.name} {self.unicode_char}'
+
+@dataclass
+class Card:
+    type: Hokm
+    number: str
+    ord: int
+
+    def __repr__(self):
+        return f'{self.type.unicode_char} {self.number}'
 
     def __eq__(self, other):
         return self.type == other.type and self.ord == other.ord
@@ -38,7 +46,7 @@ class Team:
         self.players = []
 
     def __repr__(self):
-        return str(self.players)
+        return self.name
 
     def __eq__(self, other):
         return self.players == other.players
@@ -69,7 +77,7 @@ class Player:
         return self.team == other.team
 
     def set_cards(self, cards):
-        self.hand = sorted(cards, key=lambda card: (card.type_name, card.ord))
+        self.hand = sorted(cards, key=lambda card: (card.type.name, card.ord))
 
     def remove_card(self, card):
         self.hand.remove(card)

@@ -11,7 +11,7 @@ def generate_cards():
     CARDS = []
     for TYPE in TYPES:
         for i in range(len(NUMBERS)):
-            CARDS.append(Card(TYPE['name'], TYPE['unicode_char'], NUMBERS[i], i, TYPES.index(TYPE)))
+            CARDS.append(Card(TYPE, NUMBERS[i], i))
 
 def generate_teams():
     global TEAMS
@@ -46,10 +46,8 @@ def set_starter(highest_beter, highest_bet):
 
 def set_hokm(player, bet):
     global HOKM
-    hokms = HOKMS
-    if bet == 13:
-        hokms += ADDITIONAL_HOKMS
-    hokms_to_show = ', '.join([f'{hokm['unicode_char']} {hokm['name']}:{hokm['code']}' for hokm in hokms])
+    hokms = HOKMS.copy() if bet == 13 else TYPES.copy()
+    hokms_to_show = ', '.join([f'{hokm}:{i}' for i, hokm in enumerate(hokms)])
     pre = ''
     while True:
         player.send_message(f'{pre}{player.name} what is your hokm? {hokms_to_show}')
@@ -57,7 +55,7 @@ def set_hokm(player, bet):
         if hokm > 3 and bet != 13:
             pre = INVALID_RESPONSE
             continue
-        HOKM = HOKMS[hokm]
+        HOKM = hokms[hokm]
         break
 
 def fold_first(player):
@@ -71,22 +69,22 @@ def fold_first(player):
             pre = INVALID_RESPONSE
             continue
         pre = ''
-        folded_cards.append(player.hand[fold])
+        folded_cards.append((None, player.hand[fold]))
         del player.hand[fold]
     player.team.collected_hands.append(folded_cards)
 
 def hand_collector(ground):
-    if HOKM['code'] == 4:
+    if HOKM == NARAS:
         player_to_collect, min_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and card[1].ord < min_card.ord:
                 player_to_collect, min_card = card
-    if HOKM['code'] == 5:
+    if HOKM == SARAS:
         player_to_collect, max_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and card[1].ord > max_card.ord:
                 player_to_collect, max_card = card
-    if HOKM['code'] == 6:
+    if HOKM == TAK_NARAS:
         player_to_collect, min_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and (card[1].ord < min_card.ord or card[1].type == '12'):
@@ -96,10 +94,10 @@ def hand_collector(ground):
         for card in ground.hand[1:]:
             if card[1].type == ground.type and (card[1].ord > max_card.ord):
                 player_to_collect, max_card = card
-        if ground.type != HOKM['code']:
+        if ground.type != HOKM:
             max_bor = None
             for card in ground.hand[1:]:
-                if card[1].type == HOKM['code'] and (not max_bor or card[1].ord > max_bor.ord):
+                if card[1].type == HOKM and (not max_bor or card[1].ord > max_bor.ord):
                     player_to_collect, max_bor = card
     return player_to_collect
 
@@ -135,6 +133,8 @@ def start_game():
     generate_cards()
     generate_field()
     while all(team.score < 104 for team in TEAMS):
+        for team in TEAMS:
+            broadcast_message(f'{team}: {team.score}')
         broadcast_message('Shuffling cards...')
         shuffle_cards()
         broadcast_message('Handing out cards...')
@@ -144,7 +144,8 @@ def start_game():
         highest_bet = None
         highest_beter = None
         for player in FIELD:
-            player.send_message(f'These are your cards: {player.hand}\nWhat is your bet?')
+            player_hand = ', '.join([str(card) for card in player.hand])
+            player.send_message(f'These are your cards: {player_hand}\nWhat is your bet?')
             bet = player.recieve_message()
             if bet == 'pass':
                 pass
@@ -163,18 +164,18 @@ def start_game():
         broadcast_message(f'Starter: {STARTER.name}')
         fold_first(highest_beter)
         set_hokm(highest_beter, highest_bet)
-        broadcast_message(f'Hokm: {HOKM["unicode_char"]} {HOKM["name"]}')
+        broadcast_message(f'Hokm: {HOKM}')
         round_starter = FIELD.index(STARTER)
         f_team, b_team = TEAMS[0], TEAMS[1]
         if highest_beter.team != f_team:
             f_team, b_team = b_team, f_team
-        while len(f_team.collected_hands) < highest_bet or len(b_team.collected_hands) < (14 - highest_bet):
+        while len(f_team.collected_hands) < highest_bet and len(b_team.collected_hands) < (14 - highest_bet):
             broadcast_message(f'{f_team.name}: {len(f_team.collected_hands)}\n{b_team.name}: {len(b_team.collected_hands)}')
             ground = Ground()
             player_to_start = FIELD[round_starter]
             pre = ''
             while True:
-                player_hand = ', '.join([f'{hand}:{i}' for i, hand in enumerate(player_to_start.hand)])
+                player_hand = ', '.join([f'{card}:{i}' for i, card in enumerate(player_to_start.hand)])
                 player_to_start.send_message(f'{pre}{player_to_start.name}: {player_hand}\nChoose a card to play:')
                 card = int(player_to_start.recieve_message())
                 if card > len(player_to_start.hand) - 1:
@@ -185,7 +186,6 @@ def start_game():
             player_to_start.hand.remove(card)
             ground.add_card(player_to_start, card)
             ground.type = card.type
-            ground.type_name = card.type_name
             for i in range(1, 4):
                 broadcast_message(', '.join([f'{p_c[0].name}:{p_c[1]}' for p_c in ground.hand]))
                 player_to_play = FIELD[(round_starter + i) % len(FIELD)]
@@ -198,8 +198,8 @@ def start_game():
                         pre = INVALID_RESPONSE
                         continue
                     card = player_to_play.hand[card]
-                    if any(card.type == ground.type for card in player_to_play.hand) and card.type != ground.type:
-                        pre = f'You have {ground.type_name}!\n'
+                    if any(player_card.type == ground.type for player_card in player_to_play.hand) and card.type != ground.type:
+                        pre = f'You have {ground.type.name}!\n'
                         continue
                     break
                 player_to_play.hand.remove(card)
@@ -207,10 +207,14 @@ def start_game():
             player_to_collect = hand_collector(ground)
             round_starter = FIELD.index(player_to_collect)
             player_to_collect.team.collected_hands.append(ground.hand)
+        round_winner = f_team
         if len(f_team.collected_hands) == highest_bet:
-            f_team.score += highest_bet if highest_bet != 13 else highest_bet * 2
+            f_team.score += highest_bet if highest_bet != 13 else 26
         else:
+            round_winner = b_team
             b_team.score += highest_bet * 2
+        broadcast_message(f'Winner of this round is: {round_winner}')
+        CARDS = [card[1] for team in TEAMS for hand in team.collected_hands for card in hand] + [card for player in FIELD for card in player.hand]
         CARDS += ground_cards
         for TEAM in TEAMS:
             TEAM.collected_hands = []

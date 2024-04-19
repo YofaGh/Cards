@@ -13,7 +13,7 @@ try:
         if message_type == '1':
             while True:
                 response = input()
-                if 'Choose you name' in message:
+                if 'Choose you name' in message or ('What is your bet?' in message and response == 'pass'):
                     break
                 try:
                     int(response)
