@@ -8,25 +8,28 @@ lock = threading.Lock()
 
 def generate_cards():
     global CARDS
-    CARDS = []
-    for TYPE in TYPES:
-        for i in range(len(NUMBERS)):
-            CARDS.append(Card(TYPE, NUMBERS[i], i))
+    CARDS: list[Card] = [Card(TYPE, NUMBERS[i], i) for TYPE in TYPES for i in range(len(NUMBERS))]
 
 def generate_teams():
     global TEAMS
-    TEAMS = [Team(f'Team {i + 1}') for i in range(NUMBER_OF_TEAMS)]
+    TEAMS: list[Team] = [Team(f'Team {i + 1}') for i in range(NUMBER_OF_TEAMS)]
 
 def generate_field():
     global FIELD
-    FIELD = []
-    for i in range(TEAM_SIZE):
-        for j in range(NUMBER_OF_TEAMS):
-            FIELD.append(TEAMS[j].players[i])
-    FIELD = tuple(FIELD)
+    FIELD: tuple[Player] = tuple([TEAMS[j].players[i] for i in range(TEAM_SIZE) for j in range(NUMBER_OF_TEAMS)])
 
-def shuffle_cards():
-    random.shuffle(CARDS)
+def shuffle_cards(hard_shuffle: bool = False):
+    global CARDS
+    if hard_shuffle:
+        random.shuffle(CARDS)
+    else:
+        random_time = random.randint(1, 3)
+        for _ in range(random_time):
+            start = random.randint(0, len(CARDS) - 1)
+            end = random.randint(0, len(CARDS) - 1)
+            if end < start:
+                start, end = end, start
+            CARDS = CARDS[start:end] + CARDS[:start] + CARDS[end:]
 
 def hand_out_cards():
     cards_per_player = len(CARDS) // NUMBER_OF_PLAYERS
@@ -34,7 +37,7 @@ def hand_out_cards():
         for j in range(TEAM_SIZE):
             TEAMS[i].players[j].set_cards(CARDS[cards_per_player * (i * TEAM_SIZE + j):(i * TEAM_SIZE + j) * cards_per_player + cards_per_player])
 
-def set_starter(highest_beter, highest_bet):
+def set_starter(highest_beter: Player, highest_bet: int):
     global STARTER
     if not STARTER or highest_bet == 13:
         STARTER = highest_beter
@@ -44,7 +47,7 @@ def set_starter(highest_beter, highest_bet):
         return
     STARTER = FIELD[FIELD.index(STARTER) + 1 % len(FIELD)]
 
-def set_hokm(player, bet):
+def set_hokm(player: Player, bet: int):
     global HOKM
     hokms = HOKMS.copy() if bet == 13 else TYPES.copy()
     hokms_to_show = ', '.join([f'{hokm}:{i}' for i, hokm in enumerate(hokms)])
@@ -55,10 +58,10 @@ def set_hokm(player, bet):
         if hokm > 3 and bet != 13:
             pre = INVALID_RESPONSE
             continue
-        HOKM = hokms[hokm]
+        HOKM: Hokm = hokms[hokm]
         break
 
-def fold_first(player):
+def fold_first(player: Player):
     folded_cards = []
     pre = ''
     while len(player.hand) > 12:
@@ -73,18 +76,18 @@ def fold_first(player):
         del player.hand[fold]
     player.team.collected_hands.append(folded_cards)
 
-def hand_collector(ground):
+def hand_collector(ground: Ground):
     if HOKM == NARAS:
         player_to_collect, min_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and card[1].ord < min_card.ord:
                 player_to_collect, min_card = card
-    if HOKM == SARAS:
+    elif HOKM == SARAS:
         player_to_collect, max_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and card[1].ord > max_card.ord:
                 player_to_collect, max_card = card
-    if HOKM == TAK_NARAS:
+    elif HOKM == TAK_NARAS:
         player_to_collect, min_card = ground.hand[0]
         for card in ground.hand[1:]:
             if card[1].type == ground.type and (card[1].ord < min_card.ord or card[1].type == '12'):
@@ -101,12 +104,12 @@ def hand_collector(ground):
                     player_to_collect, max_bor = card
     return player_to_collect
 
-def broadcast_message(message):
+def broadcast_message(message: str):
     for team in TEAMS:
         for player in team.players:
             player.send_message(message, 0)
 
-def client_handler(connection):
+def client_handler(connection: socket.socket):
     message = '1$_$_$Choose you name:'.encode('utf-8')
     message_length = len(message).to_bytes(4, byteorder='big')
     connection.sendall(message_length + message)
@@ -129,14 +132,14 @@ def client_handler(connection):
 
 def start_game():
     global STARTER, CARDS
-    STARTER = None
+    STARTER: Player = None
     generate_cards()
     generate_field()
     while all(team.score < 104 for team in TEAMS):
         for team in TEAMS:
             broadcast_message(f'{team}: {team.score}')
         broadcast_message('Shuffling cards...')
-        shuffle_cards()
+        shuffle_cards(hard_shuffle=True)
         broadcast_message('Handing out cards...')
         ground_cards = CARDS[:4]
         del CARDS[:4]
