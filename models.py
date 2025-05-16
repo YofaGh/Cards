@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class Hokm:
     name: str
     unicode_char: str
 
     def __repr__(self):
-        return f'{self.name} {self.unicode_char}'
+        return f"{self.name} {self.unicode_char}"
+
 
 @dataclass
 class Card:
@@ -15,7 +17,7 @@ class Card:
     ord: int
 
     def __repr__(self):
-        return f'{self.type.unicode_char} {self.number}'
+        return f"{self.type.unicode_char} {self.number}"
 
     def __eq__(self, other):
         return self.type == other.type and self.ord == other.ord
@@ -38,6 +40,7 @@ class Card:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+
 class Team:
     def __init__(self, name):
         self.name = name
@@ -56,6 +59,7 @@ class Team:
 
     def add_player(self, player):
         self.players.append(player)
+
 
 class Player:
     def __init__(self, uuid, name, team, connection):
@@ -83,19 +87,20 @@ class Player:
         self.hand.remove(card)
 
     def send_message(self, message, type=1):
-        message = f'{type}$_$_${message}'.encode('utf-8')
-        message_length = len(message).to_bytes(4, byteorder='big')
+        message = f"{type}$_$_${message}".encode("utf-8")
+        message_length = len(message).to_bytes(4, byteorder="big")
         self.connection.sendall(message_length + message)
 
     def recieve_message(self):
         return self.connection.recv(1024).decode()
+
 
 class Ground:
     def __init__(self):
         self.hand = []
 
     def __repr__(self):
-        return ', '.join([f'{card}:{player.name}' for player, card in self.hand])
+        return ", ".join([f"{card}:{player.name}" for player, card in self.hand])
 
     def __hash__(self):
         return hash((self.type, self.number))
