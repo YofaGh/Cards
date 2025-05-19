@@ -6,8 +6,6 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::constants::{HOST, PORT};
-
 #[derive(Debug)]
 pub enum Error {
     Other(String),
@@ -23,11 +21,11 @@ impl Error {
     pub fn lock_connection(err: PoisonError<MutexGuard<TcpStream>>) -> Self {
         Self::TcpError(format!("Failed to lock connection: {}", err.to_string()))
     }
-    pub fn bind_port(err: IoError) -> Self {
+    pub fn bind_port(host: &str, port: u16, err: IoError) -> Self {
         Self::TcpError(format!(
             "Failed to bind host: {}, port: {}, {}",
-            HOST,
-            PORT,
+            host,
+            port,
             err.to_string()
         ))
     }

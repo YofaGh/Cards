@@ -4,13 +4,11 @@ use std::{
     collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
-    io::{Read, Write},
-    net::TcpStream,
     sync::{Mutex, MutexGuard},
 };
 use uuid::Uuid;
 
-use crate::{errors::Error, types::*};
+use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Hokm {
@@ -156,22 +154,13 @@ impl Player {
     }
 
     pub fn send_message(&self, message: &str, msg_type: u8) -> Result<()> {
-        let formatted_msg: String = format!("{}$_$_${}", msg_type, message);
-        let msg_bytes: &[u8] = formatted_msg.as_bytes();
-        let mut conn: MutexGuard<TcpStream> =
-            self.connection.lock().map_err(Error::lock_connection)?;
-        conn.write_all(&msg_bytes.len().to_be_bytes())
-            .map_err(Error::connection)?;
-        conn.write_all(msg_bytes).map_err(Error::connection)?;
-        conn.flush().map_err(Error::connection)
+        let conn: MutexGuard<TcpStream> = self.connection.lock().map_err(Error::lock_connection)?;
+        send_message(&conn, &format!("{}$_$_${}", msg_type, message))
     }
 
     pub fn receive_message(&self) -> Result<String> {
-        let mut buf: [u8; 1024] = [0; 1024];
-        let mut conn: MutexGuard<TcpStream> =
-            self.connection.lock().map_err(Error::lock_connection)?;
-        let bytes_read: usize = conn.read(&mut buf).map_err(Error::connection)?;
-        Ok(String::from_utf8_lossy(&buf[..bytes_read]).to_string())
+        let conn: MutexGuard<TcpStream> = self.connection.lock().map_err(Error::lock_connection)?;
+        receive_message(&conn)
     }
 }
 
