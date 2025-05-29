@@ -2,15 +2,13 @@ use itertools::Itertools;
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    fmt,
-    hash::{Hash, Hasher},
+    fmt::{Display, Formatter, Result as FmtResult},
     sync::{Mutex, MutexGuard},
 };
-use uuid::Uuid;
 
 use crate::prelude::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq)]
 pub struct Hokm {
     pub name: &'static str,
     pub unicode_char: &'static str,
@@ -25,13 +23,13 @@ impl Default for Hokm {
     }
 }
 
-impl fmt::Display for Hokm {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Hokm {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{} {}", self.name, self.unicode_char)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Card {
     pub type_: Hokm,
     pub number: String,
@@ -44,8 +42,8 @@ impl Card {
     }
 }
 
-impl fmt::Display for Card {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Card {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{} {}", self.type_.unicode_char, self.number)
     }
 }
@@ -57,13 +55,6 @@ impl PartialEq for Card {
 }
 
 impl Eq for Card {}
-
-impl Hash for Card {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.type_.hash(state);
-        self.ord.hash(state);
-    }
-}
 
 impl PartialOrd for Card {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -77,7 +68,6 @@ impl Ord for Card {
     }
 }
 
-#[derive(Debug)]
 pub struct Team {
     pub id: TeamId,
     pub name: String,
@@ -89,7 +79,7 @@ pub struct Team {
 impl Team {
     pub fn new(name: String) -> Self {
         Team {
-            id: Uuid::new_v4(),
+            id: TeamId::new_v4(),
             name,
             score: 0,
             collected_hands: Vec::new(),
@@ -98,13 +88,12 @@ impl Team {
     }
 }
 
-impl fmt::Display for Team {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Team {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{}", self.name)
     }
 }
 
-#[derive(Debug)]
 pub struct Player {
     pub id: PlayerId,
     pub name: String,
@@ -116,7 +105,7 @@ pub struct Player {
 impl Player {
     pub fn new(name: String, team_id: TeamId, connection: TcpStream) -> Self {
         Player {
-            id: Uuid::new_v4(),
+            id: PlayerId::new_v4(),
             name,
             team_id,
             hand: Vec::new(),
@@ -164,27 +153,6 @@ impl Player {
     }
 }
 
-impl fmt::Display for Player {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl PartialEq for Player {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Player {}
-
-impl Hash for Player {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
-}
-
-#[derive(Debug, Default)]
 pub struct Ground {
     pub cards: Vec<(PlayerId, Card)>,
     pub type_: Hokm,
@@ -204,17 +172,6 @@ impl Ground {
         }
         self.cards.push((player_id, card));
         Ok(())
-    }
-}
-
-impl fmt::Display for Ground {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let cards: String = self
-            .cards
-            .iter()
-            .map(|(player_id, card)| format!("{}:{}", card, player_id))
-            .join(", ");
-        write!(f, "{}", cards)
     }
 }
 

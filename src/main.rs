@@ -12,13 +12,8 @@ use lazy_static::lazy_static;
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use std::{
     collections::BTreeMap,
-    net::TcpListener,
-    sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    thread,
-    time::Duration,
-    usize,
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
-use uuid::Uuid;
 
 use {constants::*, enums::PlayerChoice, models::*, prelude::*};
 
@@ -32,7 +27,7 @@ lazy_static! {
     static ref TEAMS: Arc<RwLock<BTreeMap<TeamId, Team>>> = Arc::new(RwLock::new(BTreeMap::new()));
     static ref FIELD: Arc<RwLock<Vec<PlayerId>>> = Arc::new(RwLock::new(Vec::new()));
     static ref CARDS: Arc<RwLock<Vec<Card>>> = Arc::new(RwLock::new(Vec::new()));
-    static ref STARTER: Arc<RwLock<PlayerId>> = Arc::new(RwLock::new(Uuid::nil()));
+    static ref STARTER: Arc<RwLock<PlayerId>> = Arc::new(RwLock::new(PlayerId::nil()));
     static ref HOKM: Arc<RwLock<Hokm>> = Arc::new(RwLock::new(Hokm::default()));
     static ref NUMBER_OF_CLIENTS: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
     static ref PLAYERS: Arc<RwLock<BTreeMap<PlayerId, Player>>> =
@@ -40,19 +35,11 @@ lazy_static! {
 }
 
 fn get_read_lock<T>(rwlock: &'static RwLock<T>) -> Result<RwLockReadGuard<'static, T>> {
-    rwlock
-        .read()
-        .map_err(|err: PoisonError<RwLockReadGuard<T>>| {
-            Error::Lock(format!("Read lock error {}", err.to_string()))
-        })
+    rwlock.read().map_err(Error::rw_read)
 }
 
 fn get_write_lock<T>(rwlock: &'static RwLock<T>) -> Result<RwLockWriteGuard<'static, T>> {
-    rwlock
-        .write()
-        .map_err(|err: PoisonError<RwLockWriteGuard<T>>| {
-            Error::Lock(format!("Write lock error {}", err.to_string()))
-        })
+    rwlock.write().map_err(Error::rw_write)
 }
 
 fn get_player_choice(
@@ -155,10 +142,10 @@ fn hand_out_cards() -> Result<()> {
         })
 }
 
-fn set_starter(highest_better_id: PlayerId, highest_bet: usize) -> Result<PlayerId> {
+fn set_starter(bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
     let mut starter_guard: RwLockWriteGuard<PlayerId> = get_write_lock(&STARTER)?;
-    if starter_guard.is_nil() || highest_bet == HIGHEST_BET {
-        *starter_guard = highest_better_id;
+    if starter_guard.is_nil() || bet == HIGHEST_BET {
+        *starter_guard = bettor_id;
     } else {
         let team_with_highest_score_id: TeamId = get_read_lock(&TEAMS)?
             .values()
@@ -232,24 +219,18 @@ fn set_hokm(player_id: PlayerId, bet: usize) -> Result<()> {
 
 fn get_hand_collector_id(ground: &Ground) -> Result<PlayerId> {
     let hokm_guard: RwLockReadGuard<Hokm> = get_read_lock(&HOKM)?;
-    if hokm_guard.eq(&NARAS) {
-        ground
+    let winner_id: Option<&(PlayerId, Card)> = match *hokm_guard {
+        NARAS => ground
             .cards
             .iter()
             .filter(|(_, card)| card.type_ == ground.type_)
-            .min_by_key(|(_, card)| card.ord)
-            .map(|(player_id, _)| *player_id)
-            .ok_or(Error::NoValidCard)
-    } else if hokm_guard.eq(&SARAS) {
-        ground
+            .min_by_key(|(_, card)| card.ord),
+        SARAS => ground
             .cards
             .iter()
             .filter(|(_, card)| card.type_ == ground.type_)
-            .max_by_key(|(_, card)| card.ord)
-            .map(|(player_id, _)| *player_id)
-            .ok_or(Error::NoValidCard)
-    } else if hokm_guard.eq(&TAK_NARAS) {
-        ground
+            .max_by_key(|(_, card)| card.ord),
+        TAK_NARAS => ground
             .cards
             .iter()
             .filter(|(_, card)| card.type_ == ground.type_)
@@ -261,27 +242,26 @@ fn get_hand_collector_id(ground: &Ground) -> Result<PlayerId> {
                 } else {
                     card1.ord.cmp(&card2.ord)
                 }
-            })
-            .map(|(player_id, _)| *player_id)
-            .ok_or(Error::NoValidCard)
-    } else {
-        let hokm_winner: Option<PlayerId> = ground
-            .cards
-            .iter()
-            .filter(|(_, card)| card.type_ == *hokm_guard)
-            .max_by_key(|(_, card)| card.ord)
-            .map(|(player_id, _)| *player_id);
-        match hokm_winner {
-            Some(hw) => Ok(hw),
-            None => ground
+            }),
+        _ => {
+            let hokm_winner: Option<&(PlayerId, Card)> = ground
                 .cards
                 .iter()
-                .filter(|(_, card)| card.type_ == ground.type_)
-                .max_by_key(|(_, card)| card.ord)
-                .map(|(player_id, _)| *player_id)
-                .ok_or(Error::NoValidCard),
+                .filter(|(_, card)| card.type_ == *hokm_guard)
+                .max_by_key(|(_, card)| card.ord);
+            match hokm_winner {
+                Some(_) => hokm_winner,
+                None => ground
+                    .cards
+                    .iter()
+                    .filter(|(_, card)| card.type_ == ground.type_)
+                    .max_by_key(|(_, card)| card.ord),
+            }
         }
-    }
+    };
+    winner_id
+        .map(|(player_id, _)| *player_id)
+        .ok_or(Error::NoValidCard)
 }
 
 fn collect_hand(player_to_collect_id: PlayerId, ground: Ground) -> Result<()> {
@@ -295,7 +275,7 @@ fn collect_hand(player_to_collect_id: PlayerId, ground: Ground) -> Result<()> {
 
 fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
     let mut highest_bet_option: Option<usize> = None;
-    let mut highest_better_id: PlayerId = Uuid::nil();
+    let mut highest_bettor_id: PlayerId = PlayerId::nil();
     let mut others_bets: Vec<String> = Vec::new();
     loop {
         for player_id in get_read_lock(&FIELD)?.iter() {
@@ -310,8 +290,8 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
                         .map_or(true, |highest_bet: usize| player_choice > highest_bet)
                     {
                         highest_bet_option = Some(player_choice);
-                        highest_better_id = *player_id;
-                        others_bets.push(format!("{}: {}", player.name.to_owned(), player_choice));
+                        highest_bettor_id = *player_id;
+                        others_bets.push(format!("{}: {}", player.name, player_choice));
                         if player_choice == HIGHEST_BET {
                             break;
                         }
@@ -325,12 +305,12 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
             let (name, team_id) = {
                 let mut players_guard: RwLockWriteGuard<BTreeMap<PlayerId, Player>> =
                     get_write_lock(&PLAYERS)?;
-                let highest_better: &mut Player = get_player_mut!(players_guard, highest_better_id);
-                highest_better.add_cards(ground_cards)?;
-                (highest_better.name.to_owned(), highest_better.team_id)
+                let highest_bettor: &mut Player = get_player_mut!(players_guard, highest_bettor_id);
+                highest_bettor.add_cards(ground_cards)?;
+                (highest_bettor.name.to_owned(), highest_bettor.team_id)
             };
             broadcast_message(&format!("{} wins with {}!", name, highest_bet))?;
-            return Ok((highest_bet, highest_better_id, team_id));
+            return Ok((highest_bet, highest_bettor_id, team_id));
         }
     }
 }
@@ -400,21 +380,17 @@ fn continue_round(ground: &mut Ground, round_starter_index: usize, index: usize)
     }
 }
 
-fn finish_round(better_team_id: TeamId, catcher_team_id: TeamId, highest_bet: usize) -> Result<()> {
+fn finish_round(off_team_id: TeamId, def_team_id: TeamId, bet: usize) -> Result<()> {
     let team_string: String;
     let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
-    let better_team: &mut Team = get_team_mut!(teams_guard, better_team_id);
-    if better_team.collected_hands.len() == highest_bet {
-        better_team.score += if highest_bet == HIGHEST_BET {
-            HIGHEST_BET * 2
-        } else {
-            highest_bet
-        };
-        team_string = better_team.to_string();
+    let off_team: &mut Team = get_team_mut!(teams_guard, off_team_id);
+    if off_team.collected_hands.len() == bet {
+        off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
+        team_string = off_team.to_string();
     } else {
-        let catcher_team: &mut Team = get_team_mut!(teams_guard, catcher_team_id);
-        catcher_team.score += highest_bet * 2;
-        team_string = catcher_team.to_string();
+        let def_team: &mut Team = get_team_mut!(teams_guard, def_team_id);
+        def_team.score += bet * 2;
+        team_string = def_team.to_string();
     }
     broadcast_message(&format!("Winner of this round is: {team_string}"))
 }
@@ -436,16 +412,11 @@ fn prepare_next_round() -> Result<()> {
     Ok(())
 }
 
-fn should_continue_round(
-    better_team_id: TeamId,
-    catcher_team_id: TeamId,
-    highest_bet: usize,
-) -> Result<bool> {
+fn should_continue_round(off_team_id: TeamId, def_team_id: TeamId, bet: usize) -> Result<bool> {
     let teams_guard: RwLockReadGuard<BTreeMap<TeamId, Team>> = get_read_lock(&TEAMS)?;
-    let better_team: &Team = get_team!(teams_guard, better_team_id);
-    let catcher_team: &Team = get_team!(teams_guard, catcher_team_id);
-    Ok(better_team.collected_hands.len() < highest_bet
-        && catcher_team.collected_hands.len() < (14 - highest_bet))
+    let off_team: &Team = get_team!(teams_guard, off_team_id);
+    let def_team: &Team = get_team!(teams_guard, def_team_id);
+    Ok(off_team.collected_hands.len() < bet && def_team.collected_hands.len() < (14 - bet))
 }
 
 fn should_continue_game() -> Result<bool> {
@@ -455,12 +426,12 @@ fn should_continue_game() -> Result<bool> {
 }
 
 fn finish_game() -> Result<()> {
-    let team_winner_name: &str = &get_read_lock(&TEAMS)?
+    let winner_team: &str = &get_read_lock(&TEAMS)?
         .values()
         .find(|team: &&Team| team.score >= TARGET_SCORE)
-        .map(|team: &Team| team.name.to_owned())
+        .map(ToString::to_string)
         .ok_or_else(|| Error::Other("Team with required score was not found".to_string()))?;
-    broadcast_message(&format!("Winner is {team_winner_name}"))
+    broadcast_message(&format!("Winner is {winner_team}"))
 }
 
 fn get_opposing_team_id(team_id: TeamId) -> Result<TeamId> {
@@ -477,26 +448,24 @@ fn start_game() -> Result<()> {
     while should_continue_game()? {
         get_read_lock(&TEAMS)?
             .values()
-            .sorted_by_key(|team: &&Team| team.name.to_owned())
+            .sorted_by_key(ToString::to_string)
             .try_for_each(|team: &Team| {
-                broadcast_message(format!("{}: {}", team.name, team.score).as_str())
+                broadcast_message(&format!("{}: {}", team.name, team.score))
             })?;
         shuffle_cards(false)?;
         let ground_cards: Vec<Card> = get_write_lock(&CARDS)?.drain(0..4).collect();
         hand_out_cards()?;
-        let (highest_bet, highest_better_id, highest_better_team_id) = start_betting(ground_cards)?;
-        let mut round_starter_id: PlayerId = set_starter(highest_better_id, highest_bet)?;
-        fold_first(highest_better_id)?;
-        set_hokm(highest_better_id, highest_bet)?;
-        let catcher_team_id: TeamId = get_opposing_team_id(highest_better_team_id)?;
-        while should_continue_round(highest_better_team_id, catcher_team_id, highest_bet)? {
+        let (highest_bet, highest_bettor_id, off_team_id) = start_betting(ground_cards)?;
+        let mut round_starter_id: PlayerId = set_starter(highest_bettor_id, highest_bet)?;
+        fold_first(highest_bettor_id)?;
+        set_hokm(highest_bettor_id, highest_bet)?;
+        let def_team_id: TeamId = get_opposing_team_id(off_team_id)?;
+        while should_continue_round(off_team_id, def_team_id, highest_bet)? {
             get_read_lock(&TEAMS)?
                 .values()
-                .sorted_by_key(|team: &&Team| team.name.to_owned())
+                .sorted_by_key(ToString::to_string)
                 .try_for_each(|team: &Team| {
-                    broadcast_message(
-                        format!("{}: {}", team.name, team.collected_hands.len()).as_str(),
-                    )
+                    broadcast_message(&format!("{}: {}", team.name, team.collected_hands.len()))
                 })?;
             let round_starter_index: usize = get_read_lock(&FIELD)?
                 .iter()
@@ -511,7 +480,7 @@ fn start_game() -> Result<()> {
             round_starter_id = get_hand_collector_id(&ground)?;
             collect_hand(round_starter_id, ground)?;
         }
-        finish_round(highest_better_team_id, catcher_team_id, highest_bet)?;
+        finish_round(off_team_id, def_team_id, highest_bet)?;
         prepare_next_round()?;
     }
     finish_game()
@@ -522,8 +491,8 @@ fn client_handler(connection: TcpStream) -> Result<()> {
     send_message(&connection, message)?;
     let name: String = receive_message(&connection)?;
     let mut pre: &'static str = "";
+    let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
     loop {
-        let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
         let available_teams: Vec<&Team> = teams_guard
             .values()
             .filter_map(|team: &Team| {
@@ -533,7 +502,7 @@ fn client_handler(connection: TcpStream) -> Result<()> {
                     None
                 }
             })
-            .sorted_by_key(|team: &&Team| team.name.to_owned())
+            .sorted_by_key(ToString::to_string)
             .collect();
         let available_teams_str: String = available_teams
             .iter()
@@ -542,12 +511,8 @@ fn client_handler(connection: TcpStream) -> Result<()> {
             .join(", ");
         let message: String = format!("1$_$_${}Choose your team: {}", pre, available_teams_str);
         send_message(&connection, &message)?;
-        let response: String = receive_message(&connection)?;
-        match response.parse::<usize>() {
-            Ok(team)
-                if team < available_teams.len()
-                    && available_teams[team].players.len() < TEAM_SIZE =>
-            {
+        match receive_message(&connection)?.parse::<usize>() {
+            Ok(team) if team < available_teams.len() => {
                 let team_id: TeamId = available_teams[team].id;
                 let player: Player = Player::new(name, team_id, connection);
                 get_team_mut!(teams_guard, team_id).players.push(player.id);
@@ -562,13 +527,13 @@ fn client_handler(connection: TcpStream) -> Result<()> {
 
 fn main() -> Result<()> {
     generate_teams()?;
-    let listener: TcpListener = get_listener(HOST, PORT)?;
+    let listener: std::net::TcpListener = get_listener(HOST, PORT)?;
     // listener.set_nonblocking(true).unwrap();
     while *get_read_lock(&NUMBER_OF_CLIENTS)? != NUMBER_OF_PLAYERS {
         match listener.accept() {
             Ok((stream, _)) => client_handler(stream)?,
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(200));
             }
             Err(err) => println!("{}", err),
         }

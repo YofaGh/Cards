@@ -6,6 +6,8 @@ use std::{
 };
 use uuid::Uuid;
 
+use crate::types::{PlayerId, TeamId};
+
 #[derive(Debug)]
 pub enum Error {
     Other(String),
@@ -29,14 +31,20 @@ impl Error {
             err.to_string()
         ))
     }
-    pub fn player_not_found(id: Uuid) -> Self {
+    pub fn player_not_found(id: PlayerId) -> Self {
         Self::id_not_found(id, "player")
     }
-    pub fn team_not_found(id: Uuid) -> Self {
+    pub fn team_not_found(id: TeamId) -> Self {
         Self::id_not_found(id, "team")
     }
     pub fn id_not_found(id: Uuid, object: &str) -> Self {
         Self::Other(format!("{} with ID {} not found", object, id))
+    }
+    pub fn rw_read<T>(err: PoisonError<T>) -> Self {
+        Self::Lock(format!("Read lock error {}", err.to_string()))
+    }
+    pub fn rw_write<T>(err: PoisonError<T>) -> Self {
+        Self::Lock(format!("Write lock error {}", err.to_string()))
     }
 }
 
