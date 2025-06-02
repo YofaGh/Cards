@@ -1,6 +1,8 @@
 use std::{
+    env,
     io::{Error as IoError, Read, Write},
     net::TcpListener,
+    num::ParseIntError,
 };
 
 use crate::prelude::*;
@@ -22,7 +24,21 @@ pub fn receive_message(mut connection: &TcpStream) -> Result<String> {
     Ok(String::from_utf8_lossy(&buf[..bytes_read]).to_string())
 }
 
-pub fn get_listener(host: &str, port: u16) -> Result<TcpListener> {
-    TcpListener::bind(format!("{}:{}", host, port))
-        .map_err(|err: IoError| Error::bind_port(host, port, err))
+pub fn get_listener() -> Result<TcpListener> {
+    let address: &str = &get_bind_address()?;
+    TcpListener::bind(address).map_err(|err: IoError| Error::bind_address(address, err))
+}
+
+fn get_bind_address() -> Result<String> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        return Err(Error::Arg(format!("Usage: {} <host> <port>", args[0])));
+    }
+    let port: u16 = args[2].parse().map_err(|err: ParseIntError| {
+        Error::Arg(format!(
+            "Failed to parse port number: {}, err: {}",
+            args[2], err
+        ))
+    })?;
+    Ok(format!("{}:{}", &args[1], port))
 }

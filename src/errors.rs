@@ -10,26 +10,22 @@ use crate::types::{PlayerId, TeamId};
 
 #[derive(Debug)]
 pub enum Error {
-    Other(String),
+    Arg(String),
     Lock(String),
-    TcpError(String),
+    Other(String),
+    Tcp(String),
     NoValidCard,
 }
 
 impl Error {
     pub fn connection(err: IoError) -> Self {
-        Self::TcpError(format!("Connection error {}", err))
+        Self::Tcp(format!("Connection error {}", err))
     }
     pub fn lock_connection(err: PoisonError<MutexGuard<TcpStream>>) -> Self {
-        Self::TcpError(format!("Failed to lock connection: {}", err.to_string()))
+        Self::Tcp(format!("Failed to lock connection: {}", err))
     }
-    pub fn bind_port(host: &str, port: u16, err: IoError) -> Self {
-        Self::TcpError(format!(
-            "Failed to bind host: {}, port: {}, {}",
-            host,
-            port,
-            err.to_string()
-        ))
+    pub fn bind_address(address: &str, err: IoError) -> Self {
+        Self::Tcp(format!("Failed to bind address: {}, {}", address, err))
     }
     pub fn player_not_found(id: PlayerId) -> Self {
         Self::id_not_found(id, "player")
@@ -41,18 +37,20 @@ impl Error {
         Self::Other(format!("{} with ID {} not found", object, id))
     }
     pub fn rw_read<T>(err: PoisonError<T>) -> Self {
-        Self::Lock(format!("Read lock error {}", err.to_string()))
+        Self::Lock(format!("Read lock error {}", err))
     }
     pub fn rw_write<T>(err: PoisonError<T>) -> Self {
-        Self::Lock(format!("Write lock error {}", err.to_string()))
+        Self::Lock(format!("Write lock error {}", err))
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Error::Other(msg) | Error::Lock(msg) | Error::TcpError(msg) => write!(f, "{msg}"),
-            Error::NoValidCard => write!(f, "No valid card found to determine winner"),
+            Error::Arg(msg) | Error::Lock(msg) | Error::Other(msg) | Error::Tcp(msg) => {
+                write!(f, "{msg}")
+            }
+            Error::NoValidCard => write!(f, "No valid card was found"),
         }
     }
 }

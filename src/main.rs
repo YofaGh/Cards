@@ -24,14 +24,18 @@ const TEAM_SIZE: usize = 2;
 const NUMBER_OF_TEAMS: usize = NUMBER_OF_PLAYERS / TEAM_SIZE;
 
 lazy_static! {
-    static ref TEAMS: Arc<RwLock<BTreeMap<TeamId, Team>>> = Arc::new(RwLock::new(BTreeMap::new()));
-    static ref FIELD: Arc<RwLock<Vec<PlayerId>>> = Arc::new(RwLock::new(Vec::new()));
-    static ref CARDS: Arc<RwLock<Vec<Card>>> = Arc::new(RwLock::new(Vec::new()));
-    static ref STARTER: Arc<RwLock<PlayerId>> = Arc::new(RwLock::new(PlayerId::nil()));
-    static ref HOKM: Arc<RwLock<Hokm>> = Arc::new(RwLock::new(Hokm::default()));
-    static ref NUMBER_OF_CLIENTS: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
+    static ref TEAMS: Arc<RwLock<BTreeMap<TeamId, Team>>> = create_shared_state(BTreeMap::new());
+    static ref FIELD: Arc<RwLock<Vec<PlayerId>>> = create_shared_state(Vec::new());
+    static ref CARDS: Arc<RwLock<Vec<Card>>> = create_shared_state(Vec::new());
+    static ref STARTER: Arc<RwLock<PlayerId>> = create_shared_state(PlayerId::nil());
+    static ref HOKM: Arc<RwLock<Hokm>> = create_shared_state(Hokm::default());
+    static ref NUMBER_OF_CLIENTS: Arc<RwLock<usize>> = create_shared_state(0);
     static ref PLAYERS: Arc<RwLock<BTreeMap<PlayerId, Player>>> =
-        Arc::new(RwLock::new(BTreeMap::new()));
+        create_shared_state(BTreeMap::new());
+}
+
+fn create_shared_state<T>(initial: T) -> Arc<RwLock<T>> {
+    Arc::new(RwLock::new(initial))
 }
 
 fn get_read_lock<T>(rwlock: &'static RwLock<T>) -> Result<RwLockReadGuard<'static, T>> {
@@ -107,7 +111,10 @@ fn shuffle_cards(hard_shuffle: bool) -> Result<()> {
     let mut rng: ThreadRng = rand::rng();
     let mut cards_guard: RwLockWriteGuard<Vec<Card>> = get_write_lock(&CARDS)?;
     if hard_shuffle {
-        return Ok(cards_guard.shuffle(&mut rng));
+        return {
+            cards_guard.shuffle(&mut rng);
+            Ok(())
+        };
     }
     broadcast_message("Shuffling cards...")?;
     let random_time: usize = rng.random_range(1..=3);
@@ -151,7 +158,7 @@ fn set_starter(bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
             .values()
             .max_by_key(|team: &&Team| team.score)
             .map(|team: &Team| team.id)
-            .ok_or_else(|| Error::Other("team with highest score was found".to_owned()))?;
+            .ok_or_else(|| Error::Other("team with highest score was not found".to_owned()))?;
         let starter_team_id: PlayerId =
             get_player!(get_read_lock(&PLAYERS)?, *starter_guard).team_id;
         if starter_team_id != team_with_highest_score_id {
@@ -176,13 +183,10 @@ fn fold_first(player_id: PlayerId) -> Result<()> {
     let player: &mut Player = get_player_mut!(players_guard, player_id);
     let mut folded_cards: Vec<Card> = Vec::new();
     while player.hand.len() > 12 {
-        let player_hand: String = player.get_hand();
-        if let PlayerChoice::Choice(player_choice) = get_player_choice(
-            player,
-            &format!("{player_hand}\nChoose a card to fold"),
-            false,
-            player.hand.len() - 1,
-        )? {
+        let prompt: String = format!("{}\nChoose a card to fold", player.get_hand());
+        if let PlayerChoice::Choice(player_choice) =
+            get_player_choice(player, &prompt, false, player.hand.len() - 1)?
+        {
             folded_cards.push(player.hand.remove(player_choice));
         }
     }
@@ -197,7 +201,7 @@ fn set_hokm(player_id: PlayerId, bet: usize) -> Result<()> {
     let hokms_str: String = hokms
         .iter()
         .enumerate()
-        .map(|(index, hokm)| format!("{}:{}", hokm.to_string(), index))
+        .map(|(index, hokm)| format!("{}:{}", hokm, index))
         .join(", ");
     let players_guard: RwLockReadGuard<BTreeMap<PlayerId, Player>> = get_read_lock(&PLAYERS)?;
     let player: &Player = get_player!(players_guard, player_id);
@@ -209,7 +213,7 @@ fn set_hokm(player_id: PlayerId, bet: usize) -> Result<()> {
         {
             if player_choice < hokms.len() {
                 *get_write_lock(&HOKM)? = hokms[player_choice].to_owned();
-                broadcast_message(&format!("Hokm: {}", hokms[player_choice].to_string()))?;
+                broadcast_message(&format!("Hokm: {}", hokms[player_choice]))?;
                 return Ok(());
             }
             pre = INVALID_RESPONSE;
@@ -287,7 +291,7 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
             match get_player_choice(player, &prompt, true, HIGHEST_BET)? {
                 PlayerChoice::Choice(player_choice) => {
                     if highest_bet_option
-                        .map_or(true, |highest_bet: usize| player_choice > highest_bet)
+                        .is_none_or(|highest_bet: usize| player_choice > highest_bet)
                     {
                         highest_bet_option = Some(player_choice);
                         highest_bettor_id = *player_id;
@@ -317,26 +321,21 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
 
 fn start_round(ground: &mut Ground, round_starter_id: &PlayerId) -> Result<()> {
     let mut players_guard: RwLockWriteGuard<BTreeMap<PlayerId, Player>> = get_write_lock(&PLAYERS)?;
-    let player_to_start: &mut Player = get_player_mut!(players_guard, *round_starter_id);
-    let player_hand: String = player_to_start.get_hand();
-    if let PlayerChoice::Choice(player_choice) = get_player_choice(
-        player_to_start,
-        &format!(
-            "{}: {}\nChoose a card to play:",
-            player_to_start.name, player_hand
-        ),
-        false,
-        player_to_start.hand.len() - 1,
-    )? {
-        ground.add_card(
-            player_to_start.id,
-            player_to_start.hand.remove(player_choice),
-        )?;
+    let player: &mut Player = get_player_mut!(players_guard, *round_starter_id);
+    let prompt: String = format!(
+        "{}: {}\nChoose a card to play:",
+        player.name,
+        player.get_hand()
+    );
+    if let PlayerChoice::Choice(player_choice) =
+        get_player_choice(player, &prompt, false, player.hand.len() - 1)?
+    {
+        ground.add_card(player.id, player.hand.remove(player_choice))?;
     }
     Ok(())
 }
 
-fn continue_round(ground: &mut Ground, round_starter_index: usize, index: usize) -> Result<()> {
+fn continue_round(ground: &mut Ground, index: usize) -> Result<()> {
     let ground_cards: String = {
         let players_guard: RwLockReadGuard<BTreeMap<PlayerId, Player>> = get_read_lock(&PLAYERS)?;
         ground
@@ -346,52 +345,50 @@ fn continue_round(ground: &mut Ground, round_starter_index: usize, index: usize)
                 Ok(format!(
                     "{}:{}",
                     get_player!(players_guard, *player_id).name,
-                    card.to_string()
+                    card
                 ))
             })
             .collect::<Result<Vec<String>, Error>>()?
             .join(", ")
     };
     broadcast_message(&ground_cards)?;
-    let field_guard: RwLockReadGuard<Vec<PlayerId>> = get_read_lock(&FIELD)?;
-    let player_to_play_id: PlayerId =
-        field_guard[(round_starter_index + index) % field_guard.len()];
+    let player_to_play_id: PlayerId = get_read_lock(&FIELD)?[index % NUMBER_OF_PLAYERS];
     let mut players_guard: RwLockWriteGuard<BTreeMap<PlayerId, Player>> = get_write_lock(&PLAYERS)?;
-    let player_to_play: &mut Player = get_player_mut!(players_guard, player_to_play_id);
+    let player: &mut Player = get_player_mut!(players_guard, player_to_play_id);
     let mut pre: String = String::new();
     loop {
-        let player_hand: String = player_to_play.get_hand();
+        let player_hand: String = player.get_hand();
         if let PlayerChoice::Choice(player_choice) = get_player_choice(
-            player_to_play,
+            player,
             &format!("{pre}\n{player_hand}\nChoose a card to play:"),
             false,
-            player_to_play.hand.len() - 1,
+            player.hand.len() - 1,
         )? {
-            let has_matching_card: bool = player_to_play
+            let has_matching_card: bool = player
                 .hand
                 .iter()
                 .any(|player_card: &Card| player_card.type_ == ground.type_);
-            if has_matching_card && player_to_play.hand[player_choice].type_ != ground.type_ {
+            if has_matching_card && player.hand[player_choice].type_ != ground.type_ {
                 pre = format!("You have {}!\n", ground.type_.name);
                 continue;
             }
-            return ground.add_card(player_to_play.id, player_to_play.hand.remove(player_choice));
+            return ground.add_card(player.id, player.hand.remove(player_choice));
         }
     }
 }
 
 fn finish_round(off_team_id: TeamId, def_team_id: TeamId, bet: usize) -> Result<()> {
-    let team_string: String;
     let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
     let off_team: &mut Team = get_team_mut!(teams_guard, off_team_id);
-    if off_team.collected_hands.len() == bet {
+    let team_string: String = if off_team.collected_hands.len() == bet {
         off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
-        team_string = off_team.to_string();
+        off_team
     } else {
         let def_team: &mut Team = get_team_mut!(teams_guard, def_team_id);
         def_team.score += bet * 2;
-        team_string = def_team.to_string();
+        def_team
     }
+    .to_string();
     broadcast_message(&format!("Winner of this round is: {team_string}"))
 }
 
@@ -475,7 +472,7 @@ fn start_game() -> Result<()> {
             let mut ground: Ground = Ground::new();
             start_round(&mut ground, &round_starter_id)?;
             (1..NUMBER_OF_PLAYERS).try_for_each(|index: usize| {
-                continue_round(&mut ground, round_starter_index, index)
+                continue_round(&mut ground, round_starter_index + index)
             })?;
             round_starter_id = get_hand_collector_id(&ground)?;
             collect_hand(round_starter_id, ground)?;
@@ -495,13 +492,7 @@ fn client_handler(connection: TcpStream) -> Result<()> {
     loop {
         let available_teams: Vec<&Team> = teams_guard
             .values()
-            .filter_map(|team: &Team| {
-                if team.players.len() < TEAM_SIZE {
-                    Some(team)
-                } else {
-                    None
-                }
-            })
+            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
             .sorted_by_key(ToString::to_string)
             .collect();
         let available_teams_str: String = available_teams
@@ -527,7 +518,7 @@ fn client_handler(connection: TcpStream) -> Result<()> {
 
 fn main() -> Result<()> {
     generate_teams()?;
-    let listener: std::net::TcpListener = get_listener(HOST, PORT)?;
+    let listener: std::net::TcpListener = get_listener()?;
     // listener.set_nonblocking(true).unwrap();
     while *get_read_lock(&NUMBER_OF_CLIENTS)? != NUMBER_OF_PLAYERS {
         match listener.accept() {

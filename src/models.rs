@@ -123,12 +123,12 @@ impl Player {
         self.sort_cards()
     }
 
-    pub fn sort_cards(&mut self) -> Result<()> {
+    fn sort_cards(&mut self) -> Result<()> {
         self.hand.sort_by(|a: &Card, b: &Card| {
             if a.type_.name == b.type_.name {
                 a.ord.cmp(&b.ord)
             } else {
-                a.type_.name.cmp(&b.type_.name)
+                a.type_.name.cmp(b.type_.name)
             }
         });
         Ok(())
@@ -138,7 +138,7 @@ impl Player {
         self.hand
             .iter()
             .enumerate()
-            .map(|(index, card)| format!("{}:{}", card.to_string(), index))
+            .map(|(index, card)| format!("{}:{}", card, index))
             .join(", ")
     }
 

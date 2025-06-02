@@ -1,7 +1,5 @@
 use crate::models::Hokm;
 
-pub const HOST: &str = "127.0.0.1";
-pub const PORT: u16 = 12345;
 pub const INVALID_RESPONSE: &str = "Invalid. try again\n";
 pub const SPADES: Hokm = Hokm {
     name: "Spades",
