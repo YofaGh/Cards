@@ -1,8 +1,7 @@
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Error as IoError,
-    net::TcpStream,
-    sync::{MutexGuard, PoisonError},
+    sync::PoisonError,
 };
 use uuid::Uuid;
 
@@ -21,7 +20,7 @@ impl Error {
     pub fn connection(err: IoError) -> Self {
         Self::Tcp(format!("Connection error {}", err))
     }
-    pub fn lock_connection(err: PoisonError<MutexGuard<TcpStream>>) -> Self {
+    pub fn lock_connection<T>(err: PoisonError<T>) -> Self {
         Self::Tcp(format!("Failed to lock connection: {}", err))
     }
     pub fn bind_address(address: &str, err: IoError) -> Self {
@@ -45,7 +44,7 @@ impl Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
             Error::Arg(msg) | Error::Lock(msg) | Error::Other(msg) | Error::Tcp(msg) => {
                 write!(f, "{msg}")

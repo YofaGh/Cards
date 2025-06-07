@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     collections::BTreeMap,
     fmt::{Display, Formatter, Result as FmtResult},
+    net::Shutdown,
     sync::{Mutex, MutexGuard},
 };
 
@@ -150,6 +151,14 @@ impl Player {
     pub fn receive_message(&self) -> Result<String> {
         let conn: MutexGuard<TcpStream> = self.connection.lock().map_err(Error::lock_connection)?;
         receive_message(&conn)
+    }
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        if let Ok(conn) = self.connection.lock() {
+            let _ = conn.shutdown(Shutdown::Both);
+        }
     }
 }
 

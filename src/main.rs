@@ -38,11 +38,11 @@ fn create_shared_state<T>(initial: T) -> Arc<RwLock<T>> {
     Arc::new(RwLock::new(initial))
 }
 
-fn get_read_lock<T>(rwlock: &'static RwLock<T>) -> Result<RwLockReadGuard<'static, T>> {
+fn get_read_lock<T>(rwlock: &RwLock<T>) -> Result<RwLockReadGuard<T>> {
     rwlock.read().map_err(Error::rw_read)
 }
 
-fn get_write_lock<T>(rwlock: &'static RwLock<T>) -> Result<RwLockWriteGuard<'static, T>> {
+fn get_write_lock<T>(rwlock: &RwLock<T>) -> Result<RwLockWriteGuard<T>> {
     rwlock.write().map_err(Error::rw_write)
 }
 
@@ -54,7 +54,7 @@ fn get_player_choice(
 ) -> Result<PlayerChoice> {
     let mut pre: String = String::new();
     loop {
-        player.send_message(&format!("{}{}", pre, prompt), 1)?;
+        player.send_message(&format!("{pre}{prompt}"), 1)?;
         let response: String = player.receive_message()?;
         if response == "pass" {
             if passable {
@@ -65,7 +65,7 @@ fn get_player_choice(
             if choice <= max_value {
                 return Ok(PlayerChoice::Choice(choice));
             }
-            pre = format!("Choice can't be greater than {}", max_value);
+            pre = format!("Choice can't be greater than {max_value}");
         } else {
             pre = INVALID_RESPONSE.to_owned();
         }
@@ -158,7 +158,9 @@ fn set_starter(bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
             .values()
             .max_by_key(|team: &&Team| team.score)
             .map(|team: &Team| team.id)
-            .ok_or_else(|| Error::Other("team with highest score was not found".to_owned()))?;
+            .ok_or(Error::Other(
+                "team with highest score was not found".to_owned(),
+            ))?;
         let starter_team_id: PlayerId =
             get_player!(get_read_lock(&PLAYERS)?, *starter_guard).team_id;
         if starter_team_id != team_with_highest_score_id {
@@ -167,7 +169,7 @@ fn set_starter(bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
                 .iter()
                 .find_position(|player_id: &&PlayerId| **player_id == *starter_guard)
                 .map(|(index, _)| index)
-                .ok_or_else(|| Error::player_not_found(*starter_guard))?;
+                .ok_or(Error::player_not_found(*starter_guard))?;
             *starter_guard = field_guard[(index + 1) % field_guard.len()];
         }
     }
@@ -201,13 +203,13 @@ fn set_hokm(player_id: PlayerId, bet: usize) -> Result<()> {
     let hokms_str: String = hokms
         .iter()
         .enumerate()
-        .map(|(index, hokm)| format!("{}:{}", hokm, index))
+        .map(|(index, hokm)| format!("{}:{index}", hokm))
         .join(", ");
     let players_guard: RwLockReadGuard<BTreeMap<PlayerId, Player>> = get_read_lock(&PLAYERS)?;
     let player: &Player = get_player!(players_guard, player_id);
-    let mut pre: &'static str = "";
+    let mut pre: &str = "";
     loop {
-        let prompt: String = format!("{}{} what is your hokm? {}", pre, player.name, hokms_str);
+        let prompt: String = format!("{pre}{} what is your hokm? {hokms_str}", player.name);
         if let PlayerChoice::Choice(player_choice) =
             get_player_choice(player, &prompt, false, hokms.len() - 1)?
         {
@@ -295,13 +297,13 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
                     {
                         highest_bet_option = Some(player_choice);
                         highest_bettor_id = *player_id;
-                        others_bets.push(format!("{}: {}", player.name, player_choice));
+                        others_bets.push(format!("{}: {player_choice}", player.name));
                         if player_choice == HIGHEST_BET {
                             break;
                         }
                     }
                 }
-                _ => continue,
+                PlayerChoice::Pass => others_bets.push(format!("{}: pass", player.name)),
             }
             broadcast_message(&others_bets.join(", "))?;
         }
@@ -313,7 +315,7 @@ fn start_betting(ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
                 highest_bettor.add_cards(ground_cards)?;
                 (highest_bettor.name.to_owned(), highest_bettor.team_id)
             };
-            broadcast_message(&format!("{} wins with {}!", name, highest_bet))?;
+            broadcast_message(&format!("{name} wins with {highest_bet}!"))?;
             return Ok((highest_bet, highest_bettor_id, team_id));
         }
     }
@@ -380,16 +382,15 @@ fn continue_round(ground: &mut Ground, index: usize) -> Result<()> {
 fn finish_round(off_team_id: TeamId, def_team_id: TeamId, bet: usize) -> Result<()> {
     let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
     let off_team: &mut Team = get_team_mut!(teams_guard, off_team_id);
-    let team_string: String = if off_team.collected_hands.len() == bet {
+    let winner_team: &mut Team = if off_team.collected_hands.len() == bet {
         off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
         off_team
     } else {
         let def_team: &mut Team = get_team_mut!(teams_guard, def_team_id);
         def_team.score += bet * 2;
         def_team
-    }
-    .to_string();
-    broadcast_message(&format!("Winner of this round is: {team_string}"))
+    };
+    broadcast_message(&format!("Winner of this round is: {}", winner_team))
 }
 
 fn prepare_next_round() -> Result<()> {
@@ -427,7 +428,9 @@ fn finish_game() -> Result<()> {
         .values()
         .find(|team: &&Team| team.score >= TARGET_SCORE)
         .map(ToString::to_string)
-        .ok_or_else(|| Error::Other("Team with required score was not found".to_string()))?;
+        .ok_or(Error::Other(
+            "Team with required score was not found".to_string(),
+        ))?;
     broadcast_message(&format!("Winner is {winner_team}"))
 }
 
@@ -435,7 +438,7 @@ fn get_opposing_team_id(team_id: TeamId) -> Result<TeamId> {
     Ok(*get_read_lock(&TEAMS)?
         .keys()
         .find(|opposing_team_id: &&TeamId| **opposing_team_id != team_id)
-        .ok_or_else(|| Error::Other("Opposing team ID not found".to_owned()))?)
+        .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
 }
 
 fn start_game() -> Result<()> {
@@ -468,7 +471,7 @@ fn start_game() -> Result<()> {
                 .iter()
                 .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
                 .map(|(index, _)| index)
-                .ok_or_else(|| Error::player_not_found(round_starter_id))?;
+                .ok_or(Error::player_not_found(round_starter_id))?;
             let mut ground: Ground = Ground::new();
             start_round(&mut ground, &round_starter_id)?;
             (1..NUMBER_OF_PLAYERS).try_for_each(|index: usize| {
@@ -484,10 +487,10 @@ fn start_game() -> Result<()> {
 }
 
 fn client_handler(connection: TcpStream) -> Result<()> {
-    let message: &'static str = "1$_$_$Choose your name:";
+    let message: &str = "1$_$_$Choose your name:";
     send_message(&connection, message)?;
     let name: String = receive_message(&connection)?;
-    let mut pre: &'static str = "";
+    let mut pre: &str = "";
     let mut teams_guard: RwLockWriteGuard<BTreeMap<TeamId, Team>> = get_write_lock(&TEAMS)?;
     loop {
         let available_teams: Vec<&Team> = teams_guard
@@ -500,7 +503,7 @@ fn client_handler(connection: TcpStream) -> Result<()> {
             .enumerate()
             .map(|(i, team)| format!("{}:{}", team.name, i))
             .join(", ");
-        let message: String = format!("1$_$_${}Choose your team: {}", pre, available_teams_str);
+        let message: String = format!("1$_$_${pre}Choose your team: {available_teams_str}");
         send_message(&connection, &message)?;
         match receive_message(&connection)?.parse::<usize>() {
             Ok(team) if team < available_teams.len() => {
