@@ -11,7 +11,7 @@ mod prelude;
 mod tcp_messenger;
 mod types;
 
-use {constants::INVALID_RESPONSE, game::Game, models::Player, prelude::*};
+use {constants::INVALID_RESPONSE, game::Game, prelude::*};
 
 fn client_handler(connection: TcpStream, game: &mut Game) -> Result<()> {
     let message: &str = "1$_$_$Choose your name:";
@@ -29,7 +29,7 @@ fn client_handler(connection: TcpStream, game: &mut Game) -> Result<()> {
         send_message(&connection, &message)?;
         match receive_message(&connection)?.parse::<usize>() {
             Ok(team) if team < available_teams.len() => {
-                game.add_player(Player::new(name, available_teams[team].0, connection))?;
+                game.add_player(name, available_teams[team].0, connection)?;
                 return Ok(());
             }
             _ => pre = INVALID_RESPONSE,

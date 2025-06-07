@@ -15,11 +15,11 @@ const NUMBER_OF_TEAMS: usize = NUMBER_OF_PLAYERS / TEAM_SIZE;
 
 pub struct Game {
     teams: BTreeMap<TeamId, Team>,
+    players: BTreeMap<PlayerId, Player>,
     field: Vec<PlayerId>,
     cards: Vec<Card>,
     starter: PlayerId,
     hokm: Hokm,
-    players: BTreeMap<PlayerId, Player>,
     max_players: usize,
     target_score: usize,
     pub started: bool,
@@ -30,25 +30,29 @@ impl Game {
     pub fn new() -> Self {
         Self {
             teams: BTreeMap::new(),
+            players: BTreeMap::new(),
             field: Vec::new(),
             cards: Vec::new(),
             starter: PlayerId::nil(),
             hokm: Hokm::default(),
-            players: BTreeMap::new(),
-            target_score: TARGET_SCORE,
             max_players: NUMBER_OF_PLAYERS,
+            target_score: TARGET_SCORE,
             started: false,
             finished: false,
         }
     }
 
-    pub fn add_player(&mut self, player: Player) -> Result<()> {
-        if self.players.len() >= self.max_players {
+    pub fn add_player(
+        &mut self,
+        name: String,
+        team_id: TeamId,
+        connection: TcpStream,
+    ) -> Result<()> {
+        if self.get_player_count()? >= self.max_players {
             return Err(Error::Other("Game is Full".to_owned()));
         }
-        get_team_mut!(self.teams, player.team_id)
-            .players
-            .push(player.id);
+        let player: Player = Player::new(name, team_id, connection);
+        get_team_mut!(self.teams, team_id).players.push(player.id);
         self.players.insert(player.id, player);
         Ok(())
     }
