@@ -10,7 +10,6 @@ use crate::types::{PlayerId, TeamId};
 #[derive(Debug)]
 pub enum Error {
     Arg(String),
-    Lock(String),
     Other(String),
     Tcp(String),
     NoValidCard,
@@ -35,18 +34,12 @@ impl Error {
     pub fn id_not_found(id: Uuid, object: &str) -> Self {
         Self::Other(format!("{} with ID {} not found", object, id))
     }
-    pub fn rw_read<T>(err: PoisonError<T>) -> Self {
-        Self::Lock(format!("Read lock error {}", err))
-    }
-    pub fn rw_write<T>(err: PoisonError<T>) -> Self {
-        Self::Lock(format!("Write lock error {}", err))
-    }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            Error::Arg(msg) | Error::Lock(msg) | Error::Other(msg) | Error::Tcp(msg) => {
+            Error::Arg(msg) | Error::Other(msg) | Error::Tcp(msg) => {
                 write!(f, "{msg}")
             }
             Error::NoValidCard => write!(f, "No valid card was found"),

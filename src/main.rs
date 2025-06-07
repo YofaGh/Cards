@@ -13,7 +13,7 @@ mod types;
 
 use {constants::INVALID_RESPONSE, game::Game, models::Player, prelude::*};
 
-fn client_handler(connection: TcpStream, game: &Game) -> Result<()> {
+fn client_handler(connection: TcpStream, game: &mut Game) -> Result<()> {
     let message: &str = "1$_$_$Choose your name:";
     send_message(&connection, message)?;
     let name: String = receive_message(&connection)?;
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     while !game.is_full()? {
         match listener.accept() {
             Ok((stream, _)) => {
-                client_handler(stream, &game)?;
+                client_handler(stream, &mut game)?;
             }
             Err(err) => println!("Connection error: {}", err),
         }
