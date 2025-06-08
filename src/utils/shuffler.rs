@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use std::clone::Clone;
 
@@ -28,7 +30,7 @@ impl Shuffler {
         }
     }
 
-    fn hard_shuffle<Item>(&mut self, items: &mut Vec<Item>) {
+    fn hard_shuffle<Item>(&mut self, items: &mut [Item]) {
         items.shuffle(&mut self.rng);
     }
 
