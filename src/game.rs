@@ -1,10 +1,13 @@
 use itertools::Itertools;
-use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use std::collections::BTreeMap;
 
 use crate::{
-    constants::*, enums::PlayerChoice, get_player, get_player_mut, get_team, get_team_mut,
-    models::*, prelude::*,
+    constants::*,
+    enums::PlayerChoice,
+    get_player, get_player_mut, get_team, get_team_mut,
+    models::*,
+    prelude::*,
+    utils::{assets::get_player_choice, shuffler::*},
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -13,6 +16,7 @@ const HIGHEST_BET: usize = 13;
 const TEAM_SIZE: usize = 2;
 const NUMBER_OF_TEAMS: usize = NUMBER_OF_PLAYERS / TEAM_SIZE;
 
+#[derive(Default)]
 pub struct Game {
     teams: BTreeMap<TeamId, Team>,
     players: BTreeMap<PlayerId, Player>,
@@ -22,6 +26,7 @@ pub struct Game {
     hokm: Hokm,
     max_players: usize,
     target_score: usize,
+    shuffler: Shuffler,
     pub started: bool,
     pub finished: bool,
 }
@@ -29,16 +34,9 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         Self {
-            teams: BTreeMap::new(),
-            players: BTreeMap::new(),
-            field: Vec::new(),
-            cards: Vec::new(),
-            starter: PlayerId::nil(),
-            hokm: Hokm::default(),
             max_players: NUMBER_OF_PLAYERS,
             target_score: TARGET_SCORE,
-            started: false,
-            finished: false,
+            ..Default::default()
         }
     }
 
@@ -48,7 +46,7 @@ impl Game {
         team_id: TeamId,
         connection: TcpStream,
     ) -> Result<()> {
-        if self.get_player_count()? >= self.max_players {
+        if self.get_player_count() >= self.max_players {
             return Err(Error::Other("Game is Full".to_owned()));
         }
         let player: Player = Player::new(name, team_id, connection);
@@ -57,12 +55,12 @@ impl Game {
         Ok(())
     }
 
-    pub fn get_player_count(&self) -> Result<usize> {
-        Ok(self.players.len())
+    pub fn get_player_count(&self) -> usize {
+        self.players.len()
     }
 
-    pub fn is_full(&self) -> Result<bool> {
-        Ok(self.get_player_count()? >= self.max_players)
+    pub fn is_full(&self) -> bool {
+        self.get_player_count() >= self.max_players
     }
 
     pub fn initialize_game(&mut self) -> Result<()> {
@@ -71,7 +69,6 @@ impl Game {
         }
         self.generate_teams()?;
         self.generate_cards()?;
-        self.started = true;
         Ok(())
     }
 
@@ -82,6 +79,30 @@ impl Game {
             .sorted_by_key(ToString::to_string)
             .map(|team: &Team| Ok((team.id, team.name.to_owned())))
             .collect()
+    }
+
+    pub fn handle_client(&mut self, connection: TcpStream) -> Result<()> {
+        let message: &str = "1$_$_$Choose your name:";
+        send_message(&connection, message)?;
+        let name: String = receive_message(&connection)?;
+        let mut pre: &str = "";
+        loop {
+            let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
+            let available_teams_str: String = available_teams
+                .iter()
+                .enumerate()
+                .map(|(i, (_, name))| format!("{}:{}", name, i))
+                .join(", ");
+            let message: String = format!("1$_$_${pre}Choose your team: {available_teams_str}");
+            send_message(&connection, &message)?;
+            match receive_message(&connection)?.parse::<usize>() {
+                Ok(team) if team < available_teams.len() => {
+                    self.add_player(name, available_teams[team].0, connection)?;
+                    return Ok(());
+                }
+                _ => pre = INVALID_RESPONSE,
+            }
+        }
     }
 
     fn generate_teams(&mut self) -> Result<()> {
@@ -114,33 +135,6 @@ impl Game {
         self.players
             .values()
             .try_for_each(|player: &Player| player.send_message(message, 0))
-    }
-
-    pub fn shuffle_cards(&mut self, hard_shuffle: bool) -> Result<()> {
-        let mut rng: ThreadRng = rand::rng();
-        if hard_shuffle {
-            return {
-                self.cards.shuffle(&mut rng);
-                Ok(())
-            };
-        }
-        self.broadcast_message("Shuffling cards...")?;
-        let random_time: usize = rng.random_range(1..=3);
-        (0..random_time).for_each(|_| {
-            let start: usize = rng.random_range(0..self.cards.len());
-            let end: usize = rng.random_range(0..self.cards.len());
-            let (start, end) = if end < start {
-                (end, start)
-            } else {
-                (start, end)
-            };
-            let mut new_cards: Vec<Card> = Vec::with_capacity(self.cards.len());
-            new_cards.extend_from_slice(&self.cards[start..end]);
-            new_cards.extend_from_slice(&self.cards[..start]);
-            new_cards.extend_from_slice(&self.cards[end..]);
-            self.cards = new_cards;
-        });
-        Ok(())
     }
 
     pub fn hand_out_cards(&mut self) -> Result<()> {
@@ -199,7 +193,7 @@ impl Game {
                 let prompt: String = format!("{}\nChoose a card to fold", player.get_hand());
                 (hand_len, prompt)
             };
-            if let PlayerChoice::Choice(player_choice) = self.get_player_choice(
+            if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player!(self.players, player_id),
                 &prompt,
                 false,
@@ -229,7 +223,7 @@ impl Game {
         loop {
             let prompt: String = format!("{pre}{} what is your hokm? {hokms_str}", player.name);
             if let PlayerChoice::Choice(player_choice) =
-                self.get_player_choice(player, &prompt, false, hokms.len() - 1)?
+                get_player_choice(player, &prompt, false, hokms.len() - 1)?
             {
                 if player_choice < hokms.len() {
                     self.hokm = hokms[player_choice].to_owned();
@@ -305,7 +299,7 @@ impl Game {
                 let player_hand: String = player.hand.iter().map(ToString::to_string).join(", ");
                 let prompt: String =
                     format!("These are your cards: {player_hand}\nWhat is your bet?");
-                match self.get_player_choice(player, &prompt, true, HIGHEST_BET)? {
+                match get_player_choice(player, &prompt, true, HIGHEST_BET)? {
                     PlayerChoice::Choice(player_choice) => {
                         if highest_bet_option
                             .is_none_or(|highest_bet: usize| player_choice > highest_bet)
@@ -345,7 +339,7 @@ impl Game {
             );
             (prompt, player.hand.len(), player.id)
         };
-        if let PlayerChoice::Choice(player_choice) = self.get_player_choice(
+        if let PlayerChoice::Choice(player_choice) = get_player_choice(
             get_player!(self.players, *round_starter_id),
             &prompt,
             false,
@@ -382,7 +376,7 @@ impl Game {
                 let player: &Player = get_player!(self.players, player_to_play_id);
                 (player.get_hand(), player.hand.len(), player.id)
             };
-            if let PlayerChoice::Choice(player_choice) = self.get_player_choice(
+            if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player!(self.players, player_to_play_id),
                 &format!("{pre}\n{player_hand}\nChoose a card to play:"),
                 false,
@@ -425,7 +419,7 @@ impl Game {
             def_team
         }
         .to_string();
-        self.broadcast_message(&format!("Winner of this round is: {}", winner_team))
+        self.broadcast_message(&format!("Winner of this round is: {winner_team}"))
     }
 
     pub fn prepare_next_round(&mut self) -> Result<()> {
@@ -434,9 +428,9 @@ impl Game {
                 .drain(..)
                 .for_each(|hand: Vec<Card>| self.cards.extend(hand));
         });
-        self.players.values_mut().for_each(|player: &mut Player| {
-            self.cards.extend(player.hand.drain(..));
-        });
+        self.players
+            .values_mut()
+            .for_each(|player: &mut Player| self.cards.append(&mut player.hand));
         Ok(())
     }
 
@@ -480,36 +474,10 @@ impl Game {
             .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
     }
 
-    fn get_player_choice(
-        &self,
-        player: &Player,
-        prompt: &str,
-        passable: bool,
-        max_value: usize,
-    ) -> Result<PlayerChoice> {
-        let mut pre: String = String::new();
-        loop {
-            player.send_message(&format!("{pre}{prompt}"), 1)?;
-            let response: String = player.receive_message()?;
-            if response == "pass" {
-                if passable {
-                    return Ok(PlayerChoice::Pass);
-                }
-                pre = "You can't pass this one".to_owned();
-            } else if let Ok(choice) = response.parse::<usize>() {
-                if choice <= max_value {
-                    return Ok(PlayerChoice::Choice(choice));
-                }
-                pre = format!("Choice can't be greater than {max_value}");
-            } else {
-                pre = INVALID_RESPONSE.to_owned();
-            }
-        }
-    }
-
     pub fn run_game(&mut self) -> Result<()> {
+        self.started = true;
         self.generate_field()?;
-        self.shuffle_cards(true)?;
+        self.shuffler.shuffle(&mut self.cards, ShuffleMethod::Hard);
         while self.should_continue_game()? {
             self.teams
                 .values()
@@ -517,7 +485,9 @@ impl Game {
                 .try_for_each(|team: &Team| {
                     self.broadcast_message(&format!("{}: {}", team.name, team.score))
                 })?;
-            self.shuffle_cards(false)?;
+            self.broadcast_message("Shuffling cards...")?;
+            self.shuffler
+                .shuffle(&mut self.cards, ShuffleMethod::Riffle);
             let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
             self.hand_out_cards()?;
             let (highest_bet, highest_bettor_id, off_team_id) = self.start_betting(ground_cards)?;

@@ -5,7 +5,33 @@ use std::{
     num::ParseIntError,
 };
 
-use crate::prelude::*;
+use crate::{constants::INVALID_RESPONSE, enums::PlayerChoice, models::Player, prelude::*};
+
+pub fn get_player_choice(
+    player: &Player,
+    prompt: &str,
+    passable: bool,
+    max_value: usize,
+) -> Result<PlayerChoice> {
+    let mut pre: String = String::new();
+    loop {
+        player.send_message(&format!("{pre}{prompt}"), 1)?;
+        let response: String = player.receive_message()?;
+        if response == "pass" {
+            if passable {
+                return Ok(PlayerChoice::Pass);
+            }
+            pre = "You can't pass this one".to_owned();
+        } else if let Ok(choice) = response.parse::<usize>() {
+            if choice <= max_value {
+                return Ok(PlayerChoice::Choice(choice));
+            }
+            pre = format!("Choice can't be greater than {max_value}");
+        } else {
+            pre = INVALID_RESPONSE.to_owned();
+        }
+    }
+}
 
 pub fn send_message(mut connection: &TcpStream, message: &str) -> Result<()> {
     let message_bytes: &[u8] = message.as_bytes();
