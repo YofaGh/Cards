@@ -1,7 +1,6 @@
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Error as IoError,
-    sync::PoisonError,
 };
 use uuid::Uuid;
 
@@ -18,9 +17,6 @@ pub enum Error {
 impl Error {
     pub fn connection(err: IoError) -> Self {
         Self::Tcp(format!("Connection error {}", err))
-    }
-    pub fn lock_connection<T>(err: PoisonError<T>) -> Self {
-        Self::Tcp(format!("Failed to lock connection: {}", err))
     }
     pub fn bind_address(address: &str, err: IoError) -> Self {
         Self::Tcp(format!("Failed to bind address: {}, {}", address, err))

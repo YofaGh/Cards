@@ -24,8 +24,6 @@ pub struct Game {
     cards: Vec<Card>,
     starter: PlayerId,
     hokm: Hokm,
-    max_players: usize,
-    target_score: usize,
     shuffler: Shuffler,
     pub started: bool,
     pub finished: bool,
@@ -33,11 +31,7 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        Self {
-            max_players: NUMBER_OF_PLAYERS,
-            target_score: TARGET_SCORE,
-            ..Default::default()
-        }
+        Game::default()
     }
 
     pub fn add_player(
@@ -46,7 +40,7 @@ impl Game {
         team_id: TeamId,
         connection: TcpStream,
     ) -> Result<()> {
-        if self.get_player_count() >= self.max_players {
+        if self.get_player_count() >= NUMBER_OF_PLAYERS {
             return Err(Error::Other("Game is Full".to_owned()));
         }
         let player: Player = Player::new(name, team_id, connection);
@@ -60,7 +54,7 @@ impl Game {
     }
 
     pub fn is_full(&self) -> bool {
-        self.get_player_count() >= self.max_players
+        self.get_player_count() >= NUMBER_OF_PLAYERS
     }
 
     pub fn initialize_game(&mut self) -> Result<()> {
@@ -72,7 +66,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
+    fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
         self.teams
             .values()
             .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
@@ -137,7 +131,7 @@ impl Game {
             .try_for_each(|player: &Player| player.send_message(message, 0))
     }
 
-    pub fn hand_out_cards(&mut self) -> Result<()> {
+    fn hand_out_cards(&mut self) -> Result<()> {
         self.broadcast_message("Handing out cards...")?;
         let cards_per_player: usize = self.cards.len() / NUMBER_OF_PLAYERS;
         self.field
@@ -150,7 +144,7 @@ impl Game {
             })
     }
 
-    pub fn set_starter(&mut self, bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
+    fn set_starter(&mut self, bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
         if self.starter.is_nil() || bet == HIGHEST_BET {
             self.starter = bettor_id;
         } else {
@@ -180,7 +174,7 @@ impl Game {
         Ok(self.starter)
     }
 
-    pub fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
+    fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
         let team_id: TeamId = get_player!(self.players, player_id).team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
         loop {
@@ -211,7 +205,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn set_hokm(&mut self, player_id: PlayerId, bet: usize) -> Result<()> {
+    fn set_hokm(&mut self, player_id: PlayerId, bet: usize) -> Result<()> {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let hokms_str: String = hokms
             .iter()
@@ -235,7 +229,7 @@ impl Game {
         }
     }
 
-    pub fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
+    fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
         let winner_id: Option<&(PlayerId, Card)> = match self.hokm {
             NARAS => ground
                 .cards
@@ -281,7 +275,7 @@ impl Game {
             .ok_or(Error::NoValidCard)
     }
 
-    pub fn collect_hand(&mut self, player_to_collect_id: PlayerId, ground: Ground) -> Result<()> {
+    fn collect_hand(&mut self, player_to_collect_id: PlayerId, ground: Ground) -> Result<()> {
         let team_to_collect_id: TeamId = get_player!(self.players, player_to_collect_id).team_id;
         get_team_mut!(self.teams, team_to_collect_id)
             .collected_hands
@@ -289,7 +283,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn start_betting(&mut self, ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
+    fn start_betting(&mut self, ground_cards: Vec<Card>) -> Result<(usize, PlayerId, TeamId)> {
         let mut highest_bet_option: Option<usize> = None;
         let mut highest_bettor_id: PlayerId = PlayerId::nil();
         let mut others_bets: Vec<String> = Vec::new();
@@ -329,7 +323,7 @@ impl Game {
         }
     }
 
-    pub fn start_round(&mut self, ground: &mut Ground, round_starter_id: &PlayerId) -> Result<()> {
+    fn start_round(&mut self, ground: &mut Ground, round_starter_id: &PlayerId) -> Result<()> {
         let (prompt, hand_len, player_id) = {
             let player = get_player!(self.players, *round_starter_id);
             let prompt = format!(
@@ -353,7 +347,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn continue_round(&mut self, ground: &mut Ground, index: usize) -> Result<()> {
+    fn continue_round(&mut self, ground: &mut Ground, index: usize) -> Result<()> {
         let ground_cards: String = {
             ground
                 .cards
@@ -403,12 +397,7 @@ impl Game {
         }
     }
 
-    pub fn finish_round(
-        &mut self,
-        off_team_id: TeamId,
-        def_team_id: TeamId,
-        bet: usize,
-    ) -> Result<()> {
+    fn finish_round(&mut self, off_team_id: TeamId, def_team_id: TeamId, bet: usize) -> Result<()> {
         let off_team: &mut Team = get_team_mut!(self.teams, off_team_id);
         let winner_team: String = if off_team.collected_hands.len() == bet {
             off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
@@ -422,7 +411,7 @@ impl Game {
         self.broadcast_message(&format!("Winner of this round is: {winner_team}"))
     }
 
-    pub fn prepare_next_round(&mut self) -> Result<()> {
+    fn prepare_next_round(&mut self) -> Result<()> {
         self.teams.values_mut().for_each(|team: &mut Team| {
             team.collected_hands
                 .drain(..)
@@ -434,7 +423,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn should_continue_round(
+    fn should_continue_round(
         &self,
         off_team_id: TeamId,
         def_team_id: TeamId,
@@ -445,18 +434,18 @@ impl Game {
         Ok(off_team.collected_hands.len() < bet && def_team.collected_hands.len() < (14 - bet))
     }
 
-    pub fn should_continue_game(&self) -> Result<bool> {
+    fn should_continue_game(&self) -> Result<bool> {
         Ok(self
             .teams
             .values()
-            .all(|team: &Team| team.score < self.target_score))
+            .all(|team: &Team| team.score < TARGET_SCORE))
     }
 
-    pub fn finish_game(&mut self) -> Result<()> {
+    fn finish_game(&mut self) -> Result<()> {
         let winner_team: &str = &self
             .teams
             .values()
-            .find(|team: &&Team| team.score >= self.target_score)
+            .find(|team: &&Team| team.score >= TARGET_SCORE)
             .map(ToString::to_string)
             .ok_or(Error::Other(
                 "Team with required score was not found".to_string(),
@@ -466,7 +455,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn get_opposing_team_id(&self, team_id: TeamId) -> Result<TeamId> {
+    fn get_opposing_team_id(&self, team_id: TeamId) -> Result<TeamId> {
         Ok(*self
             .teams
             .keys()

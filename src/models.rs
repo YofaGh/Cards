@@ -4,7 +4,6 @@ use std::{
     collections::BTreeMap,
     fmt::{Display, Formatter, Result as FmtResult},
     net::Shutdown,
-    sync::{Mutex, MutexGuard},
 };
 
 use crate::prelude::*;
@@ -100,7 +99,7 @@ pub struct Player {
     pub name: String,
     pub team_id: TeamId,
     pub hand: Vec<Card>,
-    pub connection: Mutex<TcpStream>,
+    pub connection: TcpStream,
 }
 
 impl Player {
@@ -110,7 +109,7 @@ impl Player {
             name,
             team_id,
             hand: Vec::new(),
-            connection: Mutex::new(connection),
+            connection: connection,
         }
     }
 
@@ -144,21 +143,17 @@ impl Player {
     }
 
     pub fn send_message(&self, message: &str, msg_type: u8) -> Result<()> {
-        let conn: MutexGuard<TcpStream> = self.connection.lock().map_err(Error::lock_connection)?;
-        send_message(&conn, &format!("{}$_$_${}", msg_type, message))
+        send_message(&self.connection, &format!("{}$_$_${}", msg_type, message))
     }
 
     pub fn receive_message(&self) -> Result<String> {
-        let conn: MutexGuard<TcpStream> = self.connection.lock().map_err(Error::lock_connection)?;
-        receive_message(&conn)
+        receive_message(&self.connection)
     }
 }
 
 impl Drop for Player {
     fn drop(&mut self) {
-        if let Ok(conn) = self.connection.lock() {
-            let _ = conn.shutdown(Shutdown::Both);
-        }
+        let _ = self.connection.shutdown(Shutdown::Both);
     }
 }
 
