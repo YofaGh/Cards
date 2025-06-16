@@ -16,10 +16,10 @@ pub enum Error {
 
 impl Error {
     pub fn connection(err: IoError) -> Self {
-        Self::Tcp(format!("Connection error {}", err))
+        Self::Tcp(format!("Connection error {err}"))
     }
     pub fn bind_address(address: &str, err: IoError) -> Self {
-        Self::Tcp(format!("Failed to bind address: {}, {}", address, err))
+        Self::Tcp(format!("Failed to bind address: {address}, {err}"))
     }
     pub fn player_not_found(id: PlayerId) -> Self {
         Self::id_not_found(id, "player")
@@ -28,7 +28,7 @@ impl Error {
         Self::id_not_found(id, "team")
     }
     pub fn id_not_found(id: Uuid, object: &str) -> Self {
-        Self::Other(format!("{} with ID {} not found", object, id))
+        Self::Other(format!("{object} with ID {id} not found"))
     }
 }
 

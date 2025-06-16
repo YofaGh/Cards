@@ -1,9 +1,6 @@
-use itertools::Itertools;
 use std::{
     cmp::Ordering,
-    collections::BTreeMap,
     fmt::{Display, Formatter, Result as FmtResult},
-    net::Shutdown,
 };
 
 use crate::prelude::*;
@@ -109,7 +106,7 @@ impl Player {
             name,
             team_id,
             hand: Vec::new(),
-            connection: connection,
+            connection,
         }
     }
 
@@ -138,22 +135,20 @@ impl Player {
         self.hand
             .iter()
             .enumerate()
-            .map(|(index, card)| format!("{}:{}", card, index))
+            .map(|(index, card)| format!("{card}:{index}"))
             .join(", ")
     }
 
-    pub fn send_message(&self, message: &str, msg_type: u8) -> Result<()> {
-        send_message(&self.connection, &format!("{}$_$_${}", msg_type, message))
+    pub async fn send_message(&mut self, message: &str, msg_type: u8) -> Result<()> {
+        send_message(&mut self.connection, &format!("{msg_type}$_$_${message}")).await
     }
 
-    pub fn receive_message(&self) -> Result<String> {
-        receive_message(&self.connection)
+    pub async fn receive_message(&mut self) -> Result<String> {
+        receive_message(&mut self.connection).await
     }
-}
 
-impl Drop for Player {
-    fn drop(&mut self) {
-        let _ = self.connection.shutdown(Shutdown::Both);
+    pub async fn close_connection(&mut self) -> Result<()> {
+        close_connection(&mut self.connection).await
     }
 }
 
