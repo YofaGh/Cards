@@ -4,18 +4,32 @@ use tokio::{
     net::TcpListener,
 };
 
-use crate::{constants::INVALID_RESPONSE, models::Player, prelude::*};
+use crate::{
+    constants::{INVALID_RESPONSE, PROTOCOL_SEP},
+    models::Player,
+    prelude::*,
+};
 
 pub async fn get_player_choice(
     player: &mut Player,
     prompt: &str,
+    msg_type: MessageType,
     passable: bool,
     max_value: usize,
 ) -> Result<PlayerChoice> {
     let mut pre: String = String::new();
     loop {
-        player.send_message(&format!("{pre}{prompt}"), 1).await?;
-        let response: String = player.receive_message().await?;
+        player
+            .send_message(&format!("{pre}{prompt}"), msg_type)
+            .await?;
+        let response_raw: String = player.receive_message().await?;
+        let (response, _) = match get_message(response_raw, msg_type) {
+            Ok(msg) => msg,
+            Err(_) => {
+                pre = INVALID_RESPONSE.to_owned();
+                continue;
+            }
+        };
         if response == "pass" {
             if passable {
                 return Ok(PlayerChoice::Pass);
@@ -77,9 +91,41 @@ pub async fn get_listener() -> Result<TcpListener> {
     TcpListener::from_std(listener).map_err(|err: IoError| Error::bind_address(address, err))
 }
 
+pub async fn handshake(connection: &mut TcpStream) -> Result<()> {
+    let message_type: MessageType = MessageType::Handshake;
+    let message: String = set_message("", message_type);
+    send_message(connection, &message).await?;
+    let response_raw: String = receive_message(connection).await?;
+    get_message(response_raw, message_type)?;
+    Ok(())
+}
+
 pub async fn handle_client(connection: &mut TcpStream) -> Result<String> {
-    send_message(connection, "1$_$_$Enter your username:").await?;
-    receive_message(connection).await
+    handshake(connection).await?;
+    let message_type: MessageType = MessageType::Username;
+    let message: String = set_message("Enter your username:", message_type);
+    send_message(connection, &message).await?;
+    let response_raw: String = receive_message(connection).await?;
+    let (response, _) = get_message(response_raw, message_type)?;
+    Ok(response)
+}
+
+pub fn set_message(message: &str, message_type: MessageType) -> String {
+    format!("{}{PROTOCOL_SEP}{message}", message_type as u8)
+}
+
+pub fn get_message(
+    message: String,
+    expected_message_type: MessageType,
+) -> Result<(String, MessageType)> {
+    if let Some((msg_type, msg)) = message.split_once(PROTOCOL_SEP) {
+        let message_type: MessageType = MessageType::from(msg_type);
+        if message_type != expected_message_type {
+            return Err(Error::InvalidResponse(expected_message_type, message_type));
+        }
+        return Ok((msg.to_string(), message_type));
+    }
+    Ok((message, MessageType::Unknown))
 }
 
 fn get_bind_address() -> Result<String> {

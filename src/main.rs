@@ -3,7 +3,7 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Sender},
 };
-use {game::Game, prelude::*, utils::assets::handle_client};
+use {game::Game, prelude::*};
 
 mod constants;
 mod enums;

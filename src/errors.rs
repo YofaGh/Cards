@@ -4,11 +4,15 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::types::{PlayerId, TeamId};
+use crate::{
+    enums::MessageType,
+    types::{PlayerId, TeamId},
+};
 
 #[derive(Debug)]
 pub enum Error {
     Arg(String),
+    InvalidResponse(MessageType, MessageType),
     Other(String),
     Tcp(String),
     NoValidCard,
@@ -37,6 +41,9 @@ impl Display for Error {
         match self {
             Error::Arg(msg) | Error::Other(msg) | Error::Tcp(msg) => {
                 write!(f, "{msg}")
+            }
+            Error::InvalidResponse(req, res) => {
+                write!(f, "Expected {:?} type from client, got {:?} type", req, res)
             }
             Error::NoValidCard => write!(f, "No valid card was found"),
         }

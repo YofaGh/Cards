@@ -139,8 +139,8 @@ impl Player {
             .join(", ")
     }
 
-    pub async fn send_message(&mut self, message: &str, msg_type: u8) -> Result<()> {
-        send_message(&mut self.connection, &format!("{msg_type}$_$_${message}")).await
+    pub async fn send_message(&mut self, message: &str, msg_type: MessageType) -> Result<()> {
+        send_message(&mut self.connection, &set_message(message, msg_type)).await
     }
 
     pub async fn receive_message(&mut self) -> Result<String> {

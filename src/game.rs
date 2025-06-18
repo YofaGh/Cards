@@ -73,6 +73,7 @@ impl Game {
 
     pub async fn handle_user(&mut self, mut connection: TcpStream, name: String) -> Result<()> {
         let mut pre: &str = "";
+        let message_type: MessageType = MessageType::TeamChoice;
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
             let available_teams_str: String = available_teams
@@ -80,9 +81,14 @@ impl Game {
                 .enumerate()
                 .map(|(i, (_, name))| format!("{name}:{i}"))
                 .join(", ");
-            let message: String = format!("1$_$_${pre}Choose your team: {available_teams_str}");
+            let message: String = set_message(
+                &format!("{pre}Choose your team: {available_teams_str}"),
+                message_type,
+            );
             send_message(&mut connection, &message).await?;
-            match receive_message(&mut connection).await?.parse::<usize>() {
+            let response_raw: String = receive_message(&mut connection).await?;
+            let (response, _)= get_message(response_raw, message_type)?;
+            match response.parse::<usize>() {
                 Ok(team) if team < available_teams.len() => {
                     self.add_player(name, available_teams[team].0, connection)?;
                     return Ok(());
@@ -120,7 +126,7 @@ impl Game {
 
     pub async fn broadcast_message(&mut self, message: &str) -> Result<()> {
         for player in self.players.values_mut() {
-            player.send_message(message, 0).await?;
+            player.send_message(message, MessageType::Broadcast).await?;
         }
         Ok(())
     }
@@ -185,6 +191,7 @@ impl Game {
             if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player_mut!(&mut self.players, player_id),
                 &prompt,
+                MessageType::Fold,
                 false,
                 hand_len - 1,
             )
@@ -213,8 +220,14 @@ impl Game {
         let mut pre: &str = "";
         loop {
             let prompt: String = format!("{pre}{} what is your hokm? {hokms_str}", player.name);
-            if let PlayerChoice::Choice(player_choice) =
-                get_player_choice(player, &prompt, false, hokms.len() - 1).await?
+            if let PlayerChoice::Choice(player_choice) = get_player_choice(
+                player,
+                &prompt,
+                MessageType::HokmChoice,
+                false,
+                hokms.len() - 1,
+            )
+            .await?
             {
                 if player_choice < hokms.len() {
                     self.hokm = hokms[player_choice].to_owned();
@@ -294,7 +307,9 @@ impl Game {
                 let player_hand: String = player.hand.iter().map(ToString::to_string).join(", ");
                 let prompt: String =
                     format!("These are your cards: {player_hand}\nWhat is your bet?");
-                match get_player_choice(player, &prompt, true, HIGHEST_BET).await? {
+                match get_player_choice(player, &prompt, MessageType::Bet, true, HIGHEST_BET)
+                    .await?
+                {
                     PlayerChoice::Choice(player_choice) => {
                         if highest_bet_option
                             .is_none_or(|highest_bet: usize| player_choice > highest_bet)
@@ -342,6 +357,7 @@ impl Game {
         if let PlayerChoice::Choice(player_choice) = get_player_choice(
             get_player_mut!(self.players, *round_starter_id),
             &prompt,
+            MessageType::CardPlay,
             false,
             hand_len - 1,
         )
@@ -381,6 +397,7 @@ impl Game {
             if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player_mut!(self.players, player_to_play_id),
                 &format!("{pre}\n{player_hand}\nChoose a card to play:"),
+                MessageType::CardPlay,
                 false,
                 hand_len - 1,
             )
