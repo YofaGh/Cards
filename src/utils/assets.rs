@@ -1,14 +1,10 @@
-use std::{env, io::Error as IoError, num::ParseIntError};
+use std::io::Error as IoError;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
-use crate::{
-    constants::{INVALID_RESPONSE, PROTOCOL_SEP},
-    models::Player,
-    prelude::*,
-};
+use crate::{constants::INVALID_RESPONSE, models::Player, prelude::*};
 
 pub async fn get_player_choice(
     player: &mut Player,
@@ -81,8 +77,9 @@ pub async fn close_connection(connection: &mut TcpStream) -> Result<()> {
     connection.shutdown().await.map_err(Error::connection)
 }
 
-pub async fn get_listener() -> Result<TcpListener> {
-    let address: &str = &get_bind_address()?;
+pub fn get_listener() -> Result<TcpListener> {
+    let config: &'static Config = get_config();
+    let address: &str = &format!("{}:{}", config.server.host, config.server.port);
     let listener: std::net::TcpListener = std::net::TcpListener::bind(address)
         .map_err(|err: IoError| Error::bind_address(address, err))?;
     listener.set_nonblocking(true).map_err(|err: IoError| {
@@ -111,14 +108,18 @@ pub async fn handle_client(connection: &mut TcpStream) -> Result<String> {
 }
 
 pub fn set_message(message: &str, message_type: MessageType) -> String {
-    format!("{}{PROTOCOL_SEP}{message}", message_type as u8)
+    format!(
+        "{}{}{message}",
+        message_type as u8,
+        get_config().security.protocol_sep
+    )
 }
 
 pub fn get_message(
     message: String,
     expected_message_type: MessageType,
 ) -> Result<(String, MessageType)> {
-    if let Some((msg_type, msg)) = message.split_once(PROTOCOL_SEP) {
+    if let Some((msg_type, msg)) = message.split_once(&get_config().security.protocol_sep) {
         let message_type: MessageType = MessageType::from(msg_type);
         if message_type != expected_message_type {
             return Err(Error::InvalidResponse(expected_message_type, message_type));
@@ -126,18 +127,4 @@ pub fn get_message(
         return Ok((msg.to_string(), message_type));
     }
     Ok((message, MessageType::Unknown))
-}
-
-fn get_bind_address() -> Result<String> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        return Err(Error::Arg(format!("Usage: {} <host> <port>", args[0])));
-    }
-    let port: u16 = args[2].parse().map_err(|err: ParseIntError| {
-        Error::Arg(format!(
-            "Failed to parse port number: {}, err: {}",
-            args[2], err
-        ))
-    })?;
-    Ok(format!("{}:{}", &args[1], port))
 }

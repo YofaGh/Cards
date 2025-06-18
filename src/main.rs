@@ -3,8 +3,10 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Sender},
 };
-use {game::Game, prelude::*};
 
+use {config::init_config, game::Game, prelude::*};
+
+mod config;
 mod constants;
 mod enums;
 mod errors;
@@ -13,10 +15,12 @@ mod models;
 mod prelude;
 mod types;
 mod utils;
+mod client;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let listener: TcpListener = get_listener().await?;
+    init_config()?;
+    let listener: TcpListener = get_listener()?;
     let mut game: Game = Game::new();
     game.initialize_game()?;
     let (player_tx, mut player_rx) = channel(32);

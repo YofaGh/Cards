@@ -1,6 +1,7 @@
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Error as IoError,
+    num::ParseIntError,
 };
 use uuid::Uuid;
 
@@ -11,7 +12,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum Error {
-    Arg(String),
+    Config(Vec<String>),
     InvalidResponse(MessageType, MessageType),
     Other(String),
     Tcp(String),
@@ -39,13 +40,18 @@ impl Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            Error::Arg(msg) | Error::Other(msg) | Error::Tcp(msg) => {
-                write!(f, "{msg}")
-            }
+            Error::Other(msg) | Error::Tcp(msg) => write!(f, "{msg}"),
+            Error::Config(errors) => write!(f, "{}", errors.join("\n")),
             Error::InvalidResponse(req, res) => {
                 write!(f, "Expected {:?} type from client, got {:?} type", req, res)
             }
             Error::NoValidCard => write!(f, "No valid card was found"),
         }
+    }
+}
+
+impl From<ParseIntError> for Error {
+    fn from(err: ParseIntError) -> Self {
+        Error::Other(err.to_string())
     }
 }

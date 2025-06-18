@@ -1,6 +1,8 @@
 use crate::models::Hokm;
 
-pub const PROTOCOL_SEP: &str = "$";
+pub const PROTOCOL_SEPARATOR: &str = "$";
+pub const SERVER_HOST: &str = "127.0.0.1";
+pub const SERVER_PORT: &str = "0";
 pub const INVALID_RESPONSE: &str = "Invalid. try again\n";
 pub const SPADES: Hokm = Hokm {
     name: "Spades",
