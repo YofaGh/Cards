@@ -1,11 +1,12 @@
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
-use crate::prelude::*;
+use crate::{constants::*, prelude::*};
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hokm {
     pub name: &'static str,
     pub unicode_char: &'static str,
@@ -20,13 +21,41 @@ impl Default for Hokm {
     }
 }
 
+impl Serialize for Hokm {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.name)
+    }
+}
+
+impl<'de> Deserialize<'de> for Hokm {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let name: String = String::deserialize(deserializer)?;
+        match name.as_str() {
+            "Spades" => Ok(SPADES),
+            "Hearts" => Ok(HEARTS),
+            "Diamonds" => Ok(DIAMONDS),
+            "Clubs" => Ok(CLUBS),
+            "Naras" => Ok(NARAS),
+            "Saras" => Ok(SARAS),
+            "Tak Naras" => Ok(TAK_NARAS),
+            _ => Ok(Hokm::default()),
+        }
+    }
+}
+
 impl Display for Hokm {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{} {}", self.name, self.unicode_char)
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
     pub type_: Hokm,
     pub number: String,

@@ -15,7 +15,6 @@ mod models;
 mod prelude;
 mod types;
 mod utils;
-mod client;
 
 #[tokio::main]
 async fn main() -> Result<()> {
