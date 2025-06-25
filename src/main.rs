@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
             game.handle_user(stream, user).await?;
         }
     }
-    game.broadcast_message("All players connected. Game starting...!")
+    game.broadcast_message(BroadcastMessage::GameStarting)
         .await?;
     game.run_game().await
 }

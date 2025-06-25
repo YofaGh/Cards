@@ -1,3 +1,4 @@
+use rmp_serde::{decode::Error as DecodeError, encode::Error as EncodeError};
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Error as IoError,
@@ -5,17 +6,15 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::{
-    enums::MessageType,
-    types::{PlayerId, TeamId},
-};
+use crate::types::{PlayerId, TeamId};
 
 #[derive(Debug)]
 pub enum Error {
     Config(Vec<String>),
-    InvalidResponse(MessageType, MessageType),
+    InvalidResponse(String, String),
     Other(String),
     Tcp(String),
+    RmpSerde(String),
     NoValidCard,
 }
 
@@ -35,15 +34,21 @@ impl Error {
     pub fn id_not_found(id: Uuid, object: &str) -> Self {
         Self::Other(format!("{object} with ID {id} not found"))
     }
+    pub fn deserialization(err: DecodeError) -> Self {
+        Self::RmpSerde(format!("Deserialization error: {err}"))
+    }
+    pub fn serialization(err: EncodeError) -> Self {
+        Self::RmpSerde(format!("Serialization error: {err}"))
+    }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            Error::Other(msg) | Error::Tcp(msg) => write!(f, "{msg}"),
+            Error::Other(msg) | Error::Tcp(msg) | Error::RmpSerde(msg) => write!(f, "{msg}"),
             Error::Config(errors) => write!(f, "{}", errors.join("\n")),
             Error::InvalidResponse(req, res) => {
-                write!(f, "Expected {:?} type from client, got {:?} type", req, res)
+                write!(f, "Expected {res} type from client, got {req} type")
             }
             Error::NoValidCard => write!(f, "No valid card was found"),
         }

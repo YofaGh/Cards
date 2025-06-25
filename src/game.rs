@@ -1,9 +1,6 @@
 use crate::{
-    constants::*,
-    get_player, get_player_mut, get_team, get_team_mut,
-    models::*,
-    prelude::*,
-    utils::{assets::get_player_choice, shuffler::*},
+    constants::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
+    utils::shuffler::*,
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -72,28 +69,26 @@ impl Game {
     }
 
     pub async fn handle_user(&mut self, mut connection: TcpStream, name: String) -> Result<()> {
-        let mut pre: &str = "";
-        let message_type: MessageType = MessageType::TeamChoice;
+        let mut error: &str = "";
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
-            let available_teams_str: String = available_teams
-                .iter()
-                .enumerate()
-                .map(|(i, (_, name))| format!("{name}:{i}"))
-                .join(", ");
-            let message: String = set_message(
-                &format!("{pre}Choose your team: {available_teams_str}"),
-                message_type,
-            );
+            let message: GameMessage = GameMessage::TeamChoice {
+                available_teams: available_teams
+                    .iter()
+                    .map(|(_, team_name)| team_name.clone())
+                    .collect(),
+                error: error.to_string(),
+            };
             send_message(&mut connection, &message).await?;
-            let response_raw: String = receive_message(&mut connection).await?;
-            let (response, _)= get_message(response_raw, message_type)?;
-            match response.parse::<usize>() {
-                Ok(team) if team < available_teams.len() => {
-                    self.add_player(name, available_teams[team].0, connection)?;
-                    return Ok(());
+            let response: GameMessage = receive_message(&mut connection).await?;
+            match response {
+                GameMessage::TeamChoiceResponse { team_index } => {
+                    if team_index < available_teams.len() {
+                        self.add_player(name, available_teams[team_index].0, connection)?;
+                        return Ok(());
+                    };
                 }
-                _ => pre = INVALID_RESPONSE,
+                _ => error = INVALID_RESPONSE,
             }
         }
     }
@@ -124,27 +119,49 @@ impl Game {
         Ok(())
     }
 
-    pub async fn broadcast_message(&mut self, message: &str) -> Result<()> {
+    fn get_ground_cards(&self, ground: &Ground) -> Result<Vec<(String, Card)>> {
+        ground
+            .cards
+            .iter()
+            .map(|(player_id, card)| {
+                Ok((
+                    get_player!(self.players, *player_id).name.clone(),
+                    card.clone(),
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
         for player in self.players.values_mut() {
-            player.send_message(message, MessageType::Broadcast).await?;
+            player
+                .send_message(&GameMessage::Broadcast {
+                    message: message.clone(),
+                })
+                .await?;
         }
         Ok(())
     }
 
     async fn hand_out_cards(&mut self) -> Result<()> {
-        self.broadcast_message("Handing out cards...").await?;
+        self.broadcast_message(BroadcastMessage::HandingOutCards)
+            .await?;
         let cards_per_player: usize = self.cards.len() / NUMBER_OF_PLAYERS;
-        self.field
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, player_id)| -> Result<()> {
-                get_player_mut!(self.players, *player_id).set_cards(
-                    self.cards[i * cards_per_player..(i + 1) * cards_per_player].to_vec(),
-                )
-            })
+        for (i, player_id) in self.field.iter().enumerate() {
+            let player: &mut Player = get_player_mut!(self.players, *player_id);
+            let player_cards: Vec<Card> =
+                self.cards[i * cards_per_player..(i + 1) * cards_per_player].to_vec();
+            player.set_cards(player_cards)?;
+            player
+                .send_message(&GameMessage::Cards {
+                    player_cards: player.hand.clone(),
+                })
+                .await?;
+        }
+        Ok(())
     }
 
-    async fn set_starter(&mut self, bettor_id: PlayerId, bet: usize) -> Result<PlayerId> {
+    async fn set_starter(&mut self, bettor_id: PlayerId, bet: usize) -> Result<()> {
         if self.starter.is_nil() || bet == HIGHEST_BET {
             self.starter = bettor_id;
         } else {
@@ -167,42 +184,44 @@ impl Game {
                 self.starter = self.field[(index + 1) % self.field.len()];
             }
         }
-        self.broadcast_message(&format!(
-            "Starter: {}",
-            get_player!(self.players, self.starter).name
-        ))
+        self.broadcast_message(BroadcastMessage::Starter {
+            name: get_player!(self.players, self.starter).name.clone(),
+        })
         .await?;
-        Ok(self.starter)
+        Ok(())
     }
 
     async fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
         let team_id: TeamId = get_player!(self.players, player_id).team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
+        let mut message: GameMessage = GameMessage::Fold {
+            error: "".to_string(),
+        };
         loop {
-            let (hand_len, prompt) = {
+            let hand_len: usize = {
                 let player: &Player = get_player!(self.players, player_id);
                 let hand_len: usize = player.hand.len();
                 if hand_len <= 12 {
                     break;
                 }
-                let prompt: String = format!("{}\nChoose a card to fold", player.get_hand());
-                (hand_len, prompt)
+                hand_len
             };
             if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player_mut!(&mut self.players, player_id),
-                &prompt,
-                MessageType::Fold,
+                &mut message,
                 false,
                 hand_len - 1,
             )
             .await?
             {
-                let folded_card: Card = get_player_mut!(self.players, player_id)
-                    .hand
-                    .remove(player_choice);
-                folded_cards.push(folded_card);
+                let player: &mut Player = get_player_mut!(self.players, player_id);
+                let card: Card = player.hand.remove(player_choice);
+                folded_cards.push(card.clone());
+                player
+                    .send_message(&GameMessage::RemoveCard { card })
+                    .await?;
             }
-        }
+        } 
         get_team_mut!(self.teams, team_id)
             .collected_hands
             .push(folded_cards);
@@ -211,33 +230,20 @@ impl Game {
 
     async fn set_hokm(&mut self, player_id: PlayerId, bet: usize) -> Result<()> {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
-        let hokms_str: String = hokms
-            .iter()
-            .enumerate()
-            .map(|(index, hokm)| format!("{hokm}:{index}"))
-            .join(", ");
         let player: &mut Player = get_player_mut!(self.players, player_id);
-        let mut pre: &str = "";
-        loop {
-            let prompt: String = format!("{pre}{} what is your hokm? {hokms_str}", player.name);
-            if let PlayerChoice::Choice(player_choice) = get_player_choice(
-                player,
-                &prompt,
-                MessageType::HokmChoice,
-                false,
-                hokms.len() - 1,
-            )
-            .await?
-            {
-                if player_choice < hokms.len() {
-                    self.hokm = hokms[player_choice].to_owned();
-                    self.broadcast_message(&format!("Hokm: {}", hokms[player_choice]))
-                        .await?;
-                    return Ok(());
-                }
-                pre = INVALID_RESPONSE;
-            }
+        let mut message: GameMessage = GameMessage::Hokm {
+            error: "".to_string(),
+        };
+        if let PlayerChoice::Choice(player_choice) =
+            get_player_choice(player, &mut message, false, hokms.len() - 1).await?
+        {
+            self.hokm = hokms[player_choice].to_owned();
+            self.broadcast_message(BroadcastMessage::Hokm {
+                hokm: self.hokm.clone(),
+            })
+            .await?;
         }
+        return Ok(());
     }
 
     fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
@@ -300,41 +306,42 @@ impl Game {
     ) -> Result<(usize, PlayerId, TeamId)> {
         let mut highest_bet_option: Option<usize> = None;
         let mut highest_bettor_id: PlayerId = PlayerId::nil();
-        let mut others_bets: Vec<String> = Vec::new();
+        let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
         loop {
             for player_id in self.field.clone().into_iter() {
+                let mut message: GameMessage = GameMessage::Bet {
+                    error: "".to_string(),
+                };
                 let player: &mut Player = get_player_mut!(self.players, player_id);
-                let player_hand: String = player.hand.iter().map(ToString::to_string).join(", ");
-                let prompt: String =
-                    format!("These are your cards: {player_hand}\nWhat is your bet?");
-                match get_player_choice(player, &prompt, MessageType::Bet, true, HIGHEST_BET)
-                    .await?
-                {
-                    PlayerChoice::Choice(player_choice) => {
-                        if highest_bet_option
-                            .is_none_or(|highest_bet: usize| player_choice > highest_bet)
-                        {
-                            highest_bet_option = Some(player_choice);
-                            highest_bettor_id = player_id;
-                            others_bets.push(format!("{}: {player_choice}", player.name));
-                            if player_choice == HIGHEST_BET {
-                                break;
-                            }
+                let player_choice: PlayerChoice =
+                    get_player_choice(player, &mut message, true, HIGHEST_BET).await?;
+                bets.push((player.name.clone(), player_choice.clone()));
+                if let PlayerChoice::Choice(choice) = player_choice {
+                    if highest_bet_option.is_none_or(|highest_bet: usize| choice > highest_bet) {
+                        highest_bet_option = Some(choice);
+                        highest_bettor_id = player_id;
+                        if choice == HIGHEST_BET {
+                            break;
                         }
                     }
-                    PlayerChoice::Pass => others_bets.push(format!("{}: pass", player.name)),
                 }
-                self.broadcast_message(&others_bets.join(", ")).await?;
+                self.broadcast_message(BroadcastMessage::Bets { bets: bets.clone() })
+                    .await?;
             }
             if let Some(highest_bet) = highest_bet_option {
                 let (name, team_id) = {
                     let highest_bettor: &mut Player =
                         get_player_mut!(self.players, highest_bettor_id);
-                    highest_bettor.add_cards(ground_cards)?;
+                    highest_bettor.add_cards(ground_cards.clone())?;
+                    highest_bettor
+                        .send_message(&GameMessage::AddGroundCards { ground_cards })
+                        .await?;
                     (highest_bettor.name.to_owned(), highest_bettor.team_id)
                 };
-                self.broadcast_message(&format!("{name} wins with {highest_bet}!"))
-                    .await?;
+                self.broadcast_message(BroadcastMessage::BetWinner {
+                    bet_winner: (name, highest_bet),
+                })
+                .await?;
                 return Ok((highest_bet, highest_bettor_id, team_id));
             }
         }
@@ -345,59 +352,41 @@ impl Game {
         ground: &mut Ground,
         round_starter_id: &PlayerId,
     ) -> Result<()> {
-        let (prompt, hand_len, player_id) = {
-            let player = get_player!(self.players, *round_starter_id);
-            let prompt = format!(
-                "{}: {}\nChoose a card to play:",
-                player.name,
-                player.get_hand()
-            );
-            (prompt, player.hand.len(), player.id)
+        let (hand_len, player_id) = {
+            let player: &Player = get_player!(self.players, *round_starter_id);
+            (player.hand.len(), player.id)
         };
         if let PlayerChoice::Choice(player_choice) = get_player_choice(
             get_player_mut!(self.players, *round_starter_id),
-            &prompt,
-            MessageType::CardPlay,
+            &mut GameMessage::PlayCard {
+                error: "".to_string(),
+            },
             false,
             hand_len - 1,
         )
         .await?
         {
-            let card: Card = get_player_mut!(self.players, *round_starter_id)
-                .hand
-                .remove(player_choice);
-            ground.add_card(player_id, card)?;
+            let player: &mut Player = get_player_mut!(self.players, *round_starter_id);
+            let card: Card = player.hand.remove(player_choice);
+            ground.add_card(player_id, card.clone())?;
+            return player.send_message(&GameMessage::RemoveCard { card }).await;
         }
         Ok(())
     }
 
     async fn continue_round(&mut self, ground: &mut Ground, index: usize) -> Result<()> {
-        let ground_cards: String = {
-            ground
-                .cards
-                .iter()
-                .map(|(player_id, card)| {
-                    Ok(format!(
-                        "{}:{}",
-                        get_player!(self.players, *player_id).name,
-                        card
-                    ))
-                })
-                .collect::<Result<Vec<String>, Error>>()?
-                .join(", ")
-        };
-        self.broadcast_message(&ground_cards).await?;
         let player_to_play_id: PlayerId = self.field[index % NUMBER_OF_PLAYERS];
-        let mut pre: String = String::new();
+        let mut error: String = String::new();
         loop {
-            let (player_hand, hand_len, player_id) = {
+            let (hand_len, player_id) = {
                 let player: &Player = get_player!(self.players, player_to_play_id);
-                (player.get_hand(), player.hand.len(), player.id)
+                (player.hand.len(), player.id)
             };
             if let PlayerChoice::Choice(player_choice) = get_player_choice(
                 get_player_mut!(self.players, player_to_play_id),
-                &format!("{pre}\n{player_hand}\nChoose a card to play:"),
-                MessageType::CardPlay,
+                &mut GameMessage::PlayCard {
+                    error: error.clone(),
+                },
                 false,
                 hand_len - 1,
             )
@@ -413,13 +402,13 @@ impl Game {
                     (has_matching, selected_type)
                 };
                 if has_matching_card && selected_card_type != ground.type_ {
-                    pre = format!("You have {}!\n", ground.type_.name);
+                    error = format!("You have {}!\n", ground.type_.name);
                     continue;
                 }
-                let card: Card = get_player_mut!(self.players, player_to_play_id)
-                    .hand
-                    .remove(player_choice);
-                return ground.add_card(player_id, card);
+                let player: &mut Player = get_player_mut!(self.players, player_to_play_id);
+                let card: Card = player.hand.remove(player_choice);
+                ground.add_card(player_id, card.clone())?;
+                return player.send_message(&GameMessage::RemoveCard { card }).await;
             }
         }
     }
@@ -431,7 +420,7 @@ impl Game {
         bet: usize,
     ) -> Result<()> {
         let off_team: &mut Team = get_team_mut!(self.teams, off_team_id);
-        let winner_team: String = if off_team.collected_hands.len() == bet {
+        let round_winner: String = if off_team.collected_hands.len() == bet {
             off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
             off_team
         } else {
@@ -440,7 +429,7 @@ impl Game {
             def_team
         }
         .to_string();
-        self.broadcast_message(&format!("Winner of this round is: {winner_team}"))
+        self.broadcast_message(BroadcastMessage::RoundWinner { round_winner })
             .await
     }
 
@@ -475,7 +464,7 @@ impl Game {
     }
 
     async fn finish_game(&mut self) -> Result<()> {
-        let winner_team: &str = &self
+        let game_winner: &String = &self
             .teams
             .values()
             .find(|team: &&Team| team.score >= TARGET_SCORE)
@@ -483,8 +472,10 @@ impl Game {
             .ok_or(Error::Other(
                 "Team with required score was not found".to_string(),
             ))?;
-        self.broadcast_message(&format!("Winner is {winner_team}"))
-            .await?;
+        self.broadcast_message(BroadcastMessage::GameWinner {
+            game_winner: game_winner.to_string(),
+        })
+        .await?;
         for player in self.players.values_mut() {
             player.close_connection().await?;
         }
@@ -500,42 +491,49 @@ impl Game {
             .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
     }
 
+    fn get_teams_game_score(&self) -> Vec<(String, usize)> {
+        self.teams
+            .values()
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| (team.name.clone(), team.score))
+            .collect()
+    }
+
+    fn get_teams_round_score(&self) -> Vec<(String, usize)> {
+        self.teams
+            .values()
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| (team.name.clone(), team.collected_hands.len()))
+            .collect()
+    }
+
     pub async fn run_game(&mut self) -> Result<()> {
         self.started = true;
         self.generate_field()?;
         self.shuffler.shuffle(&mut self.cards, ShuffleMethod::Hard);
         while self.should_continue_game()? {
-            let teams_str: Vec<String> = self
-                .teams
-                .values()
-                .sorted_by_key(ToString::to_string)
-                .map(|team: &Team| format!("{}: {}", team.name, team.score))
-                .collect();
-            for team_str in teams_str {
-                self.broadcast_message(&team_str).await?;
-            }
-            self.broadcast_message("Shuffling cards...").await?;
+            self.broadcast_message(BroadcastMessage::GameScore {
+                teams_score: self.get_teams_game_score(),
+            })
+            .await?;
+            self.broadcast_message(BroadcastMessage::ShufflingCards)
+                .await?;
             self.shuffler
                 .shuffle(&mut self.cards, ShuffleMethod::Riffle);
             let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
             self.hand_out_cards().await?;
             let (highest_bet, highest_bettor_id, off_team_id) =
                 self.start_betting(ground_cards).await?;
-            let mut round_starter_id: PlayerId =
-                self.set_starter(highest_bettor_id, highest_bet).await?;
+            self.set_starter(highest_bettor_id, highest_bet).await?;
+            let mut round_starter_id: PlayerId = self.starter;
             self.fold_first(highest_bettor_id).await?;
             self.set_hokm(highest_bettor_id, highest_bet).await?;
             let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
             while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
-                let teams_str: Vec<String> = self
-                    .teams
-                    .values()
-                    .sorted_by_key(ToString::to_string)
-                    .map(|team: &Team| format!("{}: {}", team.name, team.collected_hands.len()))
-                    .collect();
-                for team_str in teams_str {
-                    self.broadcast_message(&team_str).await?;
-                }
+                self.broadcast_message(BroadcastMessage::RoundScore {
+                    teams_score: self.get_teams_round_score(),
+                })
+                .await?;
                 let round_starter_index: usize = self
                     .field
                     .iter()
@@ -545,6 +543,10 @@ impl Game {
                 let mut ground: Ground = Ground::new();
                 self.start_round(&mut ground, &round_starter_id).await?;
                 for index in 1..NUMBER_OF_PLAYERS {
+                    self.broadcast_message(BroadcastMessage::GroundCards {
+                        ground_cards: self.get_ground_cards(&ground)?,
+                    })
+                    .await?;
                     self.continue_round(&mut ground, round_starter_index + index)
                         .await?;
                 }

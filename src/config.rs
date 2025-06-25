@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use std::env;
 
 use crate::{
-    constants::{PROTOCOL_SEPARATOR, SERVER_HOST, SERVER_PORT},
+    constants::{SERVER_HOST, SERVER_PORT},
     prelude::*,
 };
 
@@ -10,13 +10,7 @@ static CONFIG: OnceCell<Config> = OnceCell::new();
 
 #[derive(Debug)]
 pub struct Config {
-    pub security: SecurityConfig,
     pub server: ServerConfig,
-}
-
-#[derive(Debug)]
-pub struct SecurityConfig {
-    pub protocol_sep: String,
 }
 
 #[derive(Debug)]
@@ -35,9 +29,6 @@ impl Config {
                     .unwrap_or(SERVER_PORT.to_string())
                     .parse()?,
             },
-            security: SecurityConfig {
-                protocol_sep: env::var("PROTOCOL_SEPARATOR").unwrap_or(PROTOCOL_SEPARATOR.to_string()),
-            },
         };
         config.validate()?;
         Ok(config)
@@ -50,9 +41,6 @@ impl Config {
         }
         if self.server.port == 0 {
             errors.push("Server port must be greater than 0".to_string());
-        }
-        if self.security.protocol_sep.is_empty() {
-            errors.push("Protocol separator cannot be empty".to_string());
         }
         if errors.is_empty() {
             Ok(())

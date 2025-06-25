@@ -160,19 +160,11 @@ impl Player {
         Ok(())
     }
 
-    pub fn get_hand(&self) -> String {
-        self.hand
-            .iter()
-            .enumerate()
-            .map(|(index, card)| format!("{card}:{index}"))
-            .join(", ")
+    pub async fn send_message(&mut self, message: &GameMessage) -> Result<()> {
+        send_message(&mut self.connection, message).await
     }
 
-    pub async fn send_message(&mut self, message: &str, msg_type: MessageType) -> Result<()> {
-        send_message(&mut self.connection, &set_message(message, msg_type)).await
-    }
-
-    pub async fn receive_message(&mut self) -> Result<String> {
+    pub async fn receive_message(&mut self) -> Result<GameMessage> {
         receive_message(&mut self.connection).await
     }
 

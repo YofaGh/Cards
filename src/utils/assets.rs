@@ -1,62 +1,61 @@
+use rmp_serde::{from_slice, to_vec};
 use std::io::Error as IoError;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
-use crate::{constants::INVALID_RESPONSE, models::Player, prelude::*};
+use crate::{models::Player, prelude::*};
 
 pub async fn get_player_choice(
     player: &mut Player,
-    prompt: &str,
-    msg_type: MessageType,
+    message: &mut GameMessage,
     passable: bool,
     max_value: usize,
 ) -> Result<PlayerChoice> {
-    let mut pre: String = String::new();
+    let mut error: String = String::new();
     loop {
-        player
-            .send_message(&format!("{pre}{prompt}"), msg_type)
-            .await?;
-        let response_raw: String = player.receive_message().await?;
-        let (response, _) = match get_message(response_raw, msg_type) {
-            Ok(msg) => msg,
-            Err(_) => {
-                pre = INVALID_RESPONSE.to_owned();
-                continue;
+        message.set_error(error.clone());
+        player.send_message(message).await?;
+        match player.receive_message().await? {
+            GameMessage::PlayerChoice { index, passed } => {
+                if passed {
+                    if passable {
+                        return Ok(PlayerChoice::Pass);
+                    }
+                    error = "You can't pass this one".to_owned();
+                } else {
+                    if index <= max_value {
+                        return Ok(PlayerChoice::Choice(index));
+                    }
+                    error = format!("Choice can't be greater than {max_value}");
+                }
             }
-        };
-        if response == "pass" {
-            if passable {
-                return Ok(PlayerChoice::Pass);
+            invalid => {
+                error = format!(
+                    "Expected message type PlayerChoice, but received {}",
+                    invalid.message_type()
+                );
             }
-            pre = "You can't pass this one".to_owned();
-        } else if let Ok(choice) = response.parse::<usize>() {
-            if choice <= max_value {
-                return Ok(PlayerChoice::Choice(choice));
-            }
-            pre = format!("Choice can't be greater than {max_value}");
-        } else {
-            pre = INVALID_RESPONSE.to_owned();
         }
     }
 }
 
-pub async fn send_message(connection: &mut TcpStream, message: &str) -> Result<()> {
-    let message_bytes: &[u8] = message.as_bytes();
-    let length: u32 = message_bytes.len() as u32;
+pub async fn send_message(connection: &mut TcpStream, message: &GameMessage) -> Result<()> {
+    let data: Vec<u8> = to_vec(message).map_err(Error::serialization)?;
+    let length: u32 = data.len() as u32;
     connection
         .write_all(&length.to_be_bytes())
         .await
         .map_err(Error::connection)?;
     connection
-        .write_all(message_bytes)
+        .write_all(&data)
         .await
         .map_err(Error::connection)?;
     connection.flush().await.map_err(Error::connection)
 }
 
-pub async fn receive_message(connection: &mut TcpStream) -> Result<String> {
+pub async fn receive_message(connection: &mut TcpStream) -> Result<GameMessage> {
     let mut length_buf: [u8; 4] = [0u8; 4];
     connection
         .read_exact(&mut length_buf)
@@ -68,9 +67,7 @@ pub async fn receive_message(connection: &mut TcpStream) -> Result<String> {
         .read_exact(&mut message_buf)
         .await
         .map_err(Error::connection)?;
-    String::from_utf8(message_buf).map_err(|err: std::string::FromUtf8Error| {
-        Error::Tcp(format!("Connection error, Invalid UTF-8 in message: {err}"))
-    })
+    from_slice(&message_buf).map_err(Error::deserialization)
 }
 
 pub async fn close_connection(connection: &mut TcpStream) -> Result<()> {
@@ -89,42 +86,30 @@ pub fn get_listener() -> Result<TcpListener> {
 }
 
 pub async fn handshake(connection: &mut TcpStream) -> Result<()> {
-    let message_type: MessageType = MessageType::Handshake;
-    let message: String = set_message("", message_type);
-    send_message(connection, &message).await?;
-    let response_raw: String = receive_message(connection).await?;
-    get_message(response_raw, message_type)?;
-    Ok(())
+    send_message(connection, &GameMessage::Handshake).await?;
+    match receive_message(connection).await? {
+        GameMessage::HandshakeResponse => Ok(()),
+        invalid => {
+            close_connection(connection).await?;
+            Err(Error::InvalidResponse(
+                GameMessage::HandshakeResponse.message_type(),
+                invalid.message_type(),
+            ))
+        }
+    }
 }
 
 pub async fn handle_client(connection: &mut TcpStream) -> Result<String> {
     handshake(connection).await?;
-    let message_type: MessageType = MessageType::Username;
-    let message: String = set_message("Enter your username:", message_type);
-    send_message(connection, &message).await?;
-    let response_raw: String = receive_message(connection).await?;
-    let (response, _) = get_message(response_raw, message_type)?;
-    Ok(response)
-}
-
-pub fn set_message(message: &str, message_type: MessageType) -> String {
-    format!(
-        "{}{}{message}",
-        message_type as u8,
-        get_config().security.protocol_sep
-    )
-}
-
-pub fn get_message(
-    message: String,
-    expected_message_type: MessageType,
-) -> Result<(String, MessageType)> {
-    if let Some((msg_type, msg)) = message.split_once(&get_config().security.protocol_sep) {
-        let message_type: MessageType = MessageType::from(msg_type);
-        if message_type != expected_message_type {
-            return Err(Error::InvalidResponse(expected_message_type, message_type));
+    send_message(connection, &GameMessage::Username).await?;
+    match receive_message(connection).await? {
+        GameMessage::UsernameResponse { username } => Ok(username),
+        invalid => {
+            close_connection(connection).await?;
+            Err(Error::InvalidResponse(
+                "UsernameResponse".to_string(),
+                invalid.message_type(),
+            ))
         }
-        return Ok((msg.to_string(), message_type));
     }
-    Ok((message, MessageType::Unknown))
 }
