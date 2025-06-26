@@ -5,7 +5,10 @@ use tokio::{
     net::TcpListener,
 };
 
-use crate::{models::Player, prelude::*};
+use crate::{
+    models::{Card, Player},
+    prelude::*,
+};
 
 pub async fn get_player_choice(
     player: &mut Player,
@@ -41,6 +44,42 @@ pub async fn get_player_choice(
     }
 }
 
+// pub async fn get_player_choice(
+//     player: &mut Player,
+//     message: &mut GameMessage,
+//     passable: bool,
+//     max_value: usize,
+// ) -> Result<PlayerChoice> {
+//     let mut error: String = String::new();
+//     loop {
+//         message.set_error(error.clone());
+//         player.send_message(message).await?;
+//         match player.receive_message().await? {
+//             GameMessage::PlayerChoice { choice } => {
+//                 if choice == "pass" {
+//                     if passable {
+//                         return Ok(PlayerChoice::Pass);
+//                     }
+//                     error = "You can't pass this one".to_owned();
+//                 } else if let Ok(choice) = choice.parse::<usize>() {
+//                     if choice <= max_value {
+//                         return Ok(PlayerChoice::Choice(choice));
+//                     }
+//                     error = format!("Choice can't be greater than {max_value}");
+//                 } else {
+//                     error = INVALID_RESPONSE.to_owned();
+//                 }
+//             }
+//             invalid => {
+//                 error = format!(
+//                     "Expected message type PlayerChoice, but received {}",
+//                     invalid.message_type()
+//                 );
+//             }
+//         }
+//     }
+// }
+
 pub async fn send_message(connection: &mut TcpStream, message: &GameMessage) -> Result<()> {
     let data: Vec<u8> = to_vec(message).map_err(Error::serialization)?;
     let length: u32 = data.len() as u32;
@@ -53,6 +92,10 @@ pub async fn send_message(connection: &mut TcpStream, message: &GameMessage) -> 
         .await
         .map_err(Error::connection)?;
     connection.flush().await.map_err(Error::connection)
+}
+
+pub fn code_cards(cards: &Vec<Card>) -> Vec<String> {
+    cards.iter().map(|card: &Card| card.code()).collect()
 }
 
 pub async fn receive_message(connection: &mut TcpStream) -> Result<GameMessage> {

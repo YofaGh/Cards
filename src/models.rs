@@ -1,59 +1,10 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
-use crate::{constants::*, prelude::*};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Hokm {
-    pub name: &'static str,
-    pub unicode_char: &'static str,
-}
-
-impl Default for Hokm {
-    fn default() -> Self {
-        Hokm {
-            name: "Hokm",
-            unicode_char: "",
-        }
-    }
-}
-
-impl Serialize for Hokm {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.name)
-    }
-}
-
-impl<'de> Deserialize<'de> for Hokm {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let name: String = String::deserialize(deserializer)?;
-        match name.as_str() {
-            "Spades" => Ok(SPADES),
-            "Hearts" => Ok(HEARTS),
-            "Diamonds" => Ok(DIAMONDS),
-            "Clubs" => Ok(CLUBS),
-            "Naras" => Ok(NARAS),
-            "Saras" => Ok(SARAS),
-            "Tak Naras" => Ok(TAK_NARAS),
-            _ => Ok(Hokm::default()),
-        }
-    }
-}
-
-impl Display for Hokm {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "{} {}", self.name, self.unicode_char)
-    }
-}
+use crate::{enums::Hokm, prelude::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
@@ -66,11 +17,14 @@ impl Card {
     pub fn new(type_: Hokm, number: String, ord: usize) -> Self {
         Card { type_, number, ord }
     }
+    pub fn code(&self) -> String {
+        format!("{}-{}", self.type_.code(), self.number)
+    }
 }
 
 impl Display for Card {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "{} {}", self.type_.unicode_char, self.number)
+        write!(f, "{} {}", self.type_.unicode_char(), self.number)
     }
 }
 
@@ -151,10 +105,10 @@ impl Player {
 
     fn sort_cards(&mut self) -> Result<()> {
         self.hand.sort_by(|a: &Card, b: &Card| {
-            if a.type_.name == b.type_.name {
+            if a.type_.name() == b.type_.name() {
                 a.ord.cmp(&b.ord)
             } else {
-                a.type_.name.cmp(b.type_.name)
+                a.type_.name().cmp(b.type_.name())
             }
         });
         Ok(())

@@ -1,6 +1,87 @@
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
 use serde::{Deserialize, Serialize};
 
-use crate::models::{Card, Hokm};
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+pub enum Hokm {
+    Spades,
+    Hearts,
+    Diamonds,
+    Clubs,
+    Naras,
+    Saras,
+    TakNaras,
+    Default,
+}
+
+impl Hokm {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Hokm::Spades => "Spades",
+            Hokm::Hearts => "Hearts",
+            Hokm::Diamonds => "Diamonds",
+            Hokm::Clubs => "Clubs",
+            Hokm::Naras => "Naras",
+            Hokm::Saras => "Saras",
+            Hokm::TakNaras => "Tak Naras",
+            Hokm::Default => "Hokm",
+        }
+    }
+
+    pub fn unicode_char(&self) -> &'static str {
+        match self {
+            Hokm::Spades => "\u{2660}",
+            Hokm::Hearts => "\u{2665}",
+            Hokm::Diamonds => "\u{2666}",
+            Hokm::Clubs => "\u{2663}",
+            Hokm::Naras => "\u{2193}",
+            Hokm::Saras => "\u{2191}",
+            Hokm::TakNaras => "\u{21a7}",
+            Hokm::Default => "",
+        }
+    }
+
+    pub fn code(&self) -> String {
+        match self {
+            Hokm::Spades => "S",
+            Hokm::Hearts => "H",
+            Hokm::Diamonds => "D",
+            Hokm::Clubs => "C",
+            Hokm::Naras => "N",
+            Hokm::Saras => "A",
+            Hokm::TakNaras => "T",
+            Hokm::Default => "",
+        }
+        .to_string()
+    }
+}
+
+impl From<&str> for Hokm {
+    fn from(value: &str) -> Self {
+        match value {
+            "S" => Hokm::Spades,
+            "H" => Hokm::Hearts,
+            "D" => Hokm::Diamonds,
+            "C" => Hokm::Clubs,
+            "N" => Hokm::Naras,
+            "A" => Hokm::Saras,
+            "T" => Hokm::TakNaras,
+            _ => Hokm::Default,
+        }
+    }
+}
+
+impl Default for Hokm {
+    fn default() -> Self {
+        Hokm::Default
+    }
+}
+
+impl Display for Hokm {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "{} {}", self.name(), self.unicode_char())
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum PlayerChoice {
@@ -27,10 +108,10 @@ pub enum GameMessage {
         team_index: usize,
     },
     Cards {
-        player_cards: Vec<Card>,
+        player_cards: Vec<String>,
     },
     AddGroundCards {
-        ground_cards: Vec<Card>,
+        ground_cards: Vec<String>,
     },
     Bet {
         error: String,
@@ -49,7 +130,7 @@ pub enum GameMessage {
         error: String,
     },
     RemoveCard {
-        card: Card,
+        card: String,
     },
 }
 
@@ -101,10 +182,10 @@ pub enum BroadcastMessage {
     HandingOutCards,
     ShufflingCards,
     Starter { name: String },
-    Hokm { hokm: Hokm },
+    Hokm { hokm: String },
     Bets { bets: Vec<(String, PlayerChoice)> },
     BetWinner { bet_winner: (String, usize) },
-    GroundCards { ground_cards: Vec<(String, Card)> },
+    GroundCards { ground_cards: Vec<(String, String)> },
     RoundWinner { round_winner: String },
     GameWinner { game_winner: String },
     GameScore { teams_score: Vec<(String, usize)> },

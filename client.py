@@ -10,13 +10,77 @@ from enum import Enum
 global player_cards, ground_cards, cur_bet, hokm
 
 
-@dataclass
-class Hokm:
-    name: str
-    unicode_char: str
+class Hokm(Enum):
+    SPADES = "spades"
+    HEARTS = "hearts"
+    DIAMONDS = "diamonds"
+    CLUBS = "clubs"
+    NARAS = "naras"
+    SARAS = "saras"
+    TAK_NARAS = "tak_naras"
+    DEFAULT = "default"
 
-    def __repr__(self):
-        return f"{self.name} {self.unicode_char}"
+    def name_str(self) -> str:
+        name_map = {
+            Hokm.SPADES: "Spades",
+            Hokm.HEARTS: "Hearts",
+            Hokm.DIAMONDS: "Diamonds",
+            Hokm.CLUBS: "Clubs",
+            Hokm.NARAS: "Naras",
+            Hokm.SARAS: "Saras",
+            Hokm.TAK_NARAS: "Tak Naras",
+            Hokm.DEFAULT: "Hokm",
+        }
+        return name_map[self]
+
+    def unicode_char(self) -> str:
+        unicode_map = {
+            Hokm.SPADES: "\u2660",
+            Hokm.HEARTS: "\u2665",
+            Hokm.DIAMONDS: "\u2666",
+            Hokm.CLUBS: "\u2663",
+            Hokm.NARAS: "\u2193",
+            Hokm.SARAS: "\u2191",
+            Hokm.TAK_NARAS: "\u21a7",
+            Hokm.DEFAULT: "",
+        }
+        return unicode_map[self]
+
+    def code(self) -> str:
+        code_map = {
+            Hokm.SPADES: "S",
+            Hokm.HEARTS: "H",
+            Hokm.DIAMONDS: "D",
+            Hokm.CLUBS: "C",
+            Hokm.NARAS: "N",
+            Hokm.SARAS: "A",
+            Hokm.TAK_NARAS: "T",
+            Hokm.DEFAULT: "",
+        }
+        return code_map[self]
+
+    @classmethod
+    def from_code(cls, code: str) -> "Hokm":
+        code_to_hokm = {
+            "S": cls.SPADES,
+            "H": cls.HEARTS,
+            "D": cls.DIAMONDS,
+            "C": cls.CLUBS,
+            "N": cls.NARAS,
+            "A": cls.SARAS,
+            "T": cls.TAK_NARAS,
+        }
+        return code_to_hokm.get(code, cls.DEFAULT)
+
+    @classmethod
+    def default(cls) -> "Hokm":
+        return cls.DEFAULT
+
+    def __str__(self) -> str:
+        return f"{self.name_str()} {self.unicode_char()}"
+
+    def __repr__(self) -> str:
+        return f"Hokm.{self.name}"
 
 
 @dataclass
@@ -25,8 +89,18 @@ class Card:
     number: str
     ord: int
 
+    def code(self):
+        return f"{self.type.code()}-{self.number}"
+
+    @classmethod
+    def from_code(cls, value: str) -> "Card":
+        hokm_code, card_number = value.split("-", 1)
+        hokm = Hokm.from_code(hokm_code)
+        card_ord = NUMBERS.index(card_number)
+        return Card(hokm, card_number, card_ord)
+
     def __repr__(self):
-        return f"{self.type.unicode_char} {self.number}"
+        return f"{self.type.unicode_char()} {self.number}"
 
     def __eq__(self, other):
         return self.type == other.type and self.ord == other.ord
@@ -50,25 +124,7 @@ class Card:
         return not self.__eq__(other)
 
 
-SPADES = Hokm("Spades", "\u2660")
-HEARTS = Hokm("Hearts", "\u2665")
-DIAMONDS = Hokm("Diamonds", "\u2666")
-CLUBS = Hokm("Clubs", "\u2663")
-NARAS = Hokm("Naras", "\u2193")
-SARAS = Hokm("Saras", "\u2191")
-TAK_NARAS = Hokm("Tak Naras", "\u21a7")
 NUMBERS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
-
-
-hokms_dict = {
-    "Spades": SPADES,
-    "Hearts": HEARTS,
-    "Diamonds": DIAMONDS,
-    "Clubs": CLUBS,
-    "Naras": NARAS,
-    "Saras": SARAS,
-    "Tak_naras": TAK_NARAS,
-}
 
 
 class GameMessage(Enum):
@@ -105,24 +161,20 @@ class BroadcastMessage(Enum):
 
 def set_player_cards(response):
     global player_cards
-    player_cards = [
-        Card(hokms_dict[card[0]], card[1], card[2]) for card in response["Cards"][0]
-    ]
+    player_cards = [Card.from_code(card) for card in response["Cards"][0]]
 
 
 def set_ground_cards(response):
     global ground_cards
-    ground_cards = []
-    for ground_card in response["GroundCards"][0]:
-        card = ground_card[1]
-        ground_cards.append(
-            (ground_card[0], Card(hokms_dict[card[0]], card[1], card[2]))
-        )
+    ground_cards = [
+        (ground_card[0], Card.from_code(ground_card[1]))
+        for ground_card in response["GroundCards"][0]
+    ]
 
 
 def set_hokm_broadcast(response):
     global hokm
-    hokm = hokms_dict[response["Hokm"][0]]
+    hokm = Hokm.from_code(response["Hokm"][0])
 
 
 def set_bet(new_bet):
@@ -145,6 +197,8 @@ def print_player_cards(indexed):
 
 
 def print_ground_cards():
+    if not ground_cards:
+        return
     print("Played cards:")
     print(
         ", ".join(
@@ -295,9 +349,9 @@ def fold(response, sock):
 
 def set_hokm(response, sock):
     print_player_cards(False)
-    hokms = [SPADES, HEARTS, DIAMONDS, CLUBS]
+    hokms = [Hokm.SPADES, Hokm.HEARTS, Hokm.DIAMONDS, Hokm.CLUBS]
     if cur_bet == 13:
-        hokms += [NARAS, SARAS, TAK_NARAS]
+        hokms += [Hokm.NARAS, Hokm.SARAS, Hokm.TAK_NARAS]
     print(", ".join([f"{hokm}: {i}" for i, hokm in enumerate(hokms)]))
     choice = choose("What is your hokm? ", response["Hokm"][0], len(hokms) - 1, False)
     send_message(sock, create_player_choice(choice, False))
@@ -314,7 +368,7 @@ def create_player_choice(choice, passable):
 
 def sort_player_cards():
     global player_cards
-    player_cards.sort(key=lambda card: (card.type.name, card.ord))
+    player_cards.sort(key=lambda card: (card.type.name_str(), card.ord))
 
 
 def play_card(response, sock):
@@ -333,7 +387,7 @@ def play_card(response, sock):
                 and card.type != ground.type
             ):
                 if "You have " not in prompt:
-                    prompt = f"You have {ground.type.name}!\n{prompt}"
+                    prompt = f"You have {ground.type.name()}!\n{prompt}"
                 continue
         break
     send_message(sock, create_player_choice(choice, False))
@@ -341,18 +395,13 @@ def play_card(response, sock):
 
 def add_ground_cards(response):
     global player_cards
-    cards = response["AddGroundCards"][0]
-    for card in cards:
-        player_cards.append(Card(hokms_dict[card[0]], card[1], card[2]))
+    player_cards += [Card.from_code(card) for card in response["AddGroundCards"][0]]
     sort_player_cards()
 
 
 def remove_card(response):
     global player_cards
-    card = response["RemoveCard"][0]
-    card = Card(hokms_dict[card[0]], card[1], card[2])
-    card_index = player_cards.index(card)
-    del player_cards[card_index]
+    player_cards.remove(Card.from_code(response["RemoveCard"][0]))
 
 
 def print_broadcast(response):
@@ -401,7 +450,7 @@ def main():
     player_cards, ground_cards, cur_bet = [], [], 0
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     host = os.getenv("SERVER_HOST", "localhost")
-    port = int(os.getenv("SERVER_PORT", 8000))
+    port = int(os.getenv("127.0.0.1", 12345))
     sock.connect((host, port))
     try:
         while True:

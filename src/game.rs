@@ -119,14 +119,14 @@ impl Game {
         Ok(())
     }
 
-    fn get_ground_cards(&self, ground: &Ground) -> Result<Vec<(String, Card)>> {
+    fn get_ground_cards(&self, ground: &Ground) -> Result<Vec<(String, String)>> {
         ground
             .cards
             .iter()
             .map(|(player_id, card)| {
                 Ok((
                     get_player!(self.players, *player_id).name.clone(),
-                    card.clone(),
+                    card.code(),
                 ))
             })
             .collect()
@@ -154,7 +154,7 @@ impl Game {
             player.set_cards(player_cards)?;
             player
                 .send_message(&GameMessage::Cards {
-                    player_cards: player.hand.clone(),
+                    player_cards: code_cards(&player.hand),
                 })
                 .await?;
         }
@@ -218,10 +218,10 @@ impl Game {
                 let card: Card = player.hand.remove(player_choice);
                 folded_cards.push(card.clone());
                 player
-                    .send_message(&GameMessage::RemoveCard { card })
+                    .send_message(&GameMessage::RemoveCard { card: card.code() })
                     .await?;
             }
-        } 
+        }
         get_team_mut!(self.teams, team_id)
             .collected_hands
             .push(folded_cards);
@@ -239,7 +239,7 @@ impl Game {
         {
             self.hokm = hokms[player_choice].to_owned();
             self.broadcast_message(BroadcastMessage::Hokm {
-                hokm: self.hokm.clone(),
+                hokm: self.hokm.code(),
             })
             .await?;
         }
@@ -248,17 +248,17 @@ impl Game {
 
     fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
         let winner_id: Option<&(PlayerId, Card)> = match self.hokm {
-            NARAS => ground
+            Hokm::Naras => ground
                 .cards
                 .iter()
                 .filter(|(_, card)| card.type_ == ground.type_)
                 .min_by_key(|(_, card)| card.ord),
-            SARAS => ground
+            Hokm::Saras => ground
                 .cards
                 .iter()
                 .filter(|(_, card)| card.type_ == ground.type_)
                 .max_by_key(|(_, card)| card.ord),
-            TAK_NARAS => ground
+            Hokm::TakNaras => ground
                 .cards
                 .iter()
                 .filter(|(_, card)| card.type_ == ground.type_)
@@ -334,7 +334,9 @@ impl Game {
                         get_player_mut!(self.players, highest_bettor_id);
                     highest_bettor.add_cards(ground_cards.clone())?;
                     highest_bettor
-                        .send_message(&GameMessage::AddGroundCards { ground_cards })
+                        .send_message(&GameMessage::AddGroundCards {
+                            ground_cards: code_cards(&ground_cards),
+                        })
                         .await?;
                     (highest_bettor.name.to_owned(), highest_bettor.team_id)
                 };
@@ -369,7 +371,9 @@ impl Game {
             let player: &mut Player = get_player_mut!(self.players, *round_starter_id);
             let card: Card = player.hand.remove(player_choice);
             ground.add_card(player_id, card.clone())?;
-            return player.send_message(&GameMessage::RemoveCard { card }).await;
+            return player
+                .send_message(&GameMessage::RemoveCard { card: card.code() })
+                .await;
         }
         Ok(())
     }
@@ -402,13 +406,15 @@ impl Game {
                     (has_matching, selected_type)
                 };
                 if has_matching_card && selected_card_type != ground.type_ {
-                    error = format!("You have {}!\n", ground.type_.name);
+                    error = format!("You have {}!\n", ground.type_.name());
                     continue;
                 }
                 let player: &mut Player = get_player_mut!(self.players, player_to_play_id);
                 let card: Card = player.hand.remove(player_choice);
                 ground.add_card(player_id, card.clone())?;
-                return player.send_message(&GameMessage::RemoveCard { card }).await;
+                return player
+                    .send_message(&GameMessage::RemoveCard { card: card.code() })
+                    .await;
             }
         }
     }
