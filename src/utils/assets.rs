@@ -98,15 +98,12 @@ pub async fn close_connection(connection: &mut TcpStream) -> Result<()> {
     connection.shutdown().await.map_err(Error::connection)
 }
 
-pub fn get_listener() -> Result<TcpListener> {
+pub async fn get_listener() -> Result<TcpListener> {
     let config: &'static Config = get_config();
     let address: &str = &format!("{}:{}", config.server.host, config.server.port);
-    let listener: std::net::TcpListener = std::net::TcpListener::bind(address)
-        .map_err(|err: IoError| Error::bind_address(address, err))?;
-    listener.set_nonblocking(true).map_err(|err: IoError| {
-        Error::Tcp(format!("Failed to enable non blocking: {address}: {err}"))
-    })?;
-    TcpListener::from_std(listener).map_err(|err: IoError| Error::bind_address(address, err))
+    TcpListener::bind(address)
+        .await
+        .map_err(|err: IoError| Error::bind_address(address, err))
 }
 
 pub async fn handshake(connection: &mut TcpStream) -> Result<()> {
