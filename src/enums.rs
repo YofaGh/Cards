@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use serde::{Deserialize, Serialize};
+use crate::models::Card;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub enum Hokm {
@@ -56,9 +57,9 @@ impl Hokm {
     }
 }
 
-impl From<&str> for Hokm {
-    fn from(value: &str) -> Self {
-        match value {
+impl From<String> for Hokm {
+    fn from(value: String) -> Self {
+        match value.as_str() {
             "S" => Hokm::Spades,
             "H" => Hokm::Hearts,
             "D" => Hokm::Diamonds,
@@ -86,7 +87,9 @@ impl Display for Hokm {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum PlayerChoice {
     Pass,
-    Choice(usize),
+    NumberChoice(usize),
+    CardChoice(Card),
+    HokmChoice(Hokm),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -117,8 +120,7 @@ pub enum GameMessage {
         error: String,
     },
     PlayerChoice {
-        index: usize,
-        passed: bool,
+        choice: String,
     },
     Fold {
         error: String,

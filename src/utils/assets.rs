@@ -6,6 +6,7 @@ use tokio::{
 };
 
 use crate::{
+    constants::INVALID_RESPONSE,
     models::{Card, Player},
     prelude::*,
 };
@@ -21,17 +22,33 @@ pub async fn get_player_choice(
         message.set_error(error.clone());
         player.send_message(message).await?;
         match player.receive_message().await? {
-            GameMessage::PlayerChoice { index, passed } => {
-                if passed {
+            GameMessage::PlayerChoice { choice } => {
+                if choice == "pass" {
                     if passable {
                         return Ok(PlayerChoice::Pass);
                     }
                     error = "You can't pass this one".to_owned();
-                } else {
-                    if index <= max_value {
-                        return Ok(PlayerChoice::Choice(index));
+                } else if message.message_type() == "Hokm" {
+                    return Ok(PlayerChoice::HokmChoice(Hokm::from(choice)));
+                } else if message.message_type() == "Bet" {
+                    if let Ok(choice) = choice.parse::<usize>() {
+                        if choice <= max_value {
+                            return Ok(PlayerChoice::NumberChoice(choice));
+                        }
+                        error = format!("Choice can't be greater than {max_value}");
+                    } else {
+                        error = INVALID_RESPONSE.to_owned();
                     }
-                    error = format!("Choice can't be greater than {max_value}");
+                } else {
+                    match Card::try_from(choice) {
+                        Ok(card) => {
+                            if player.hand.contains(&card) {
+                                return Ok(PlayerChoice::CardChoice(card));
+                            }
+                            error = format!("You don't have this card!");
+                        }
+                        Err(_) => error = INVALID_RESPONSE.to_owned(),
+                    }
                 }
             }
             invalid => {
@@ -43,42 +60,6 @@ pub async fn get_player_choice(
         }
     }
 }
-
-// pub async fn get_player_choice(
-//     player: &mut Player,
-//     message: &mut GameMessage,
-//     passable: bool,
-//     max_value: usize,
-// ) -> Result<PlayerChoice> {
-//     let mut error: String = String::new();
-//     loop {
-//         message.set_error(error.clone());
-//         player.send_message(message).await?;
-//         match player.receive_message().await? {
-//             GameMessage::PlayerChoice { choice } => {
-//                 if choice == "pass" {
-//                     if passable {
-//                         return Ok(PlayerChoice::Pass);
-//                     }
-//                     error = "You can't pass this one".to_owned();
-//                 } else if let Ok(choice) = choice.parse::<usize>() {
-//                     if choice <= max_value {
-//                         return Ok(PlayerChoice::Choice(choice));
-//                     }
-//                     error = format!("Choice can't be greater than {max_value}");
-//                 } else {
-//                     error = INVALID_RESPONSE.to_owned();
-//                 }
-//             }
-//             invalid => {
-//                 error = format!(
-//                     "Expected message type PlayerChoice, but received {}",
-//                     invalid.message_type()
-//                 );
-//             }
-//         }
-//     }
-// }
 
 pub async fn send_message(connection: &mut TcpStream, message: &GameMessage) -> Result<()> {
     let data: Vec<u8> = to_vec(message).map_err(Error::serialization)?;

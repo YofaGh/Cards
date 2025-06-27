@@ -4,7 +4,7 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
-use crate::{enums::Hokm, prelude::*};
+use crate::{constants::NUMBERS, enums::Hokm, prelude::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
@@ -19,6 +19,23 @@ impl Card {
     }
     pub fn code(&self) -> String {
         format!("{}-{}", self.type_.code(), self.number)
+    }
+}
+
+impl TryFrom<String> for Card {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        if let Some((hokm_code, card_number)) = value.split_once("-") {
+            if let Some(ord) = NUMBERS.iter().position(|&x| x == card_number) {
+                return Ok(Card::new(
+                    Hokm::from(hokm_code.to_string()),
+                    card_number.to_string(),
+                    ord,
+                ));
+            }
+        }
+        Err(Error::NoValidCard)
     }
 }
 
@@ -101,6 +118,14 @@ impl Player {
     pub fn add_cards(&mut self, mut cards: Vec<Card>) -> Result<()> {
         self.hand.append(&mut cards);
         self.sort_cards()
+    }
+
+    pub fn remove_card(&mut self, card: &Card) -> Result<Card> {
+        if let Some(pos) = self.hand.iter().position(|c: &Card| c == card) {
+            Ok(self.hand.remove(pos))
+        } else {
+            Err(Error::NoValidCard)
+        }
     }
 
     fn sort_cards(&mut self) -> Result<()> {

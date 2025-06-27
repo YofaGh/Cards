@@ -198,27 +198,18 @@ impl Game {
             error: "".to_string(),
         };
         loop {
-            let hand_len: usize = {
-                let player: &Player = get_player!(self.players, player_id);
-                let hand_len: usize = player.hand.len();
-                if hand_len <= 12 {
-                    break;
-                }
-                hand_len
-            };
-            if let PlayerChoice::Choice(player_choice) = get_player_choice(
-                get_player_mut!(&mut self.players, player_id),
-                &mut message,
-                false,
-                hand_len - 1,
-            )
-            .await?
+            let player: &mut Player = get_player_mut!(self.players, player_id);
+            if player.hand.len() <= 12 {
+                break;
+            }
+            if let PlayerChoice::CardChoice(player_choice) =
+                get_player_choice(player, &mut message, false, 0).await?
             {
-                let player: &mut Player = get_player_mut!(self.players, player_id);
-                let card: Card = player.hand.remove(player_choice);
-                folded_cards.push(card.clone());
+                player.remove_card(&player_choice).ok();
+                let card_code: String = player_choice.code();
+                folded_cards.push(player_choice);
                 player
-                    .send_message(&GameMessage::RemoveCard { card: card.code() })
+                    .send_message(&GameMessage::RemoveCard { card: card_code })
                     .await?;
             }
         }
@@ -234,16 +225,22 @@ impl Game {
         let mut message: GameMessage = GameMessage::Hokm {
             error: "".to_string(),
         };
-        if let PlayerChoice::Choice(player_choice) =
-            get_player_choice(player, &mut message, false, hokms.len() - 1).await?
-        {
-            self.hokm = hokms[player_choice].to_owned();
-            self.broadcast_message(BroadcastMessage::Hokm {
-                hokm: self.hokm.code(),
-            })
-            .await?;
+        loop {
+            if let PlayerChoice::HokmChoice(player_choice) =
+                get_player_choice(player, &mut message, false, hokms.len() - 1).await?
+            {
+                if hokms.contains(&player_choice) {
+                    self.hokm = player_choice;
+                    self.broadcast_message(BroadcastMessage::Hokm {
+                        hokm: self.hokm.code(),
+                    })
+                    .await?;
+                } else {
+                    message.set_error(INVALID_RESPONSE.to_owned());
+                }
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
@@ -316,7 +313,7 @@ impl Game {
                 let player_choice: PlayerChoice =
                     get_player_choice(player, &mut message, true, HIGHEST_BET).await?;
                 bets.push((player.name.clone(), player_choice.clone()));
-                if let PlayerChoice::Choice(choice) = player_choice {
+                if let PlayerChoice::NumberChoice(choice) = player_choice {
                     if highest_bet_option.is_none_or(|highest_bet: usize| choice > highest_bet) {
                         highest_bet_option = Some(choice);
                         highest_bettor_id = player_id;
@@ -349,30 +346,23 @@ impl Game {
         }
     }
 
-    async fn start_round(
-        &mut self,
-        ground: &mut Ground,
-        round_starter_id: &PlayerId,
-    ) -> Result<()> {
-        let (hand_len, player_id) = {
-            let player: &Player = get_player!(self.players, *round_starter_id);
-            (player.hand.len(), player.id)
-        };
-        if let PlayerChoice::Choice(player_choice) = get_player_choice(
-            get_player_mut!(self.players, *round_starter_id),
+    async fn start_round(&mut self, ground: &mut Ground, round_starter_id: PlayerId) -> Result<()> {
+        if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
+            get_player_mut!(self.players, round_starter_id),
             &mut GameMessage::PlayCard {
                 error: "".to_string(),
             },
             false,
-            hand_len - 1,
+            0,
         )
         .await?
         {
-            let player: &mut Player = get_player_mut!(self.players, *round_starter_id);
-            let card: Card = player.hand.remove(player_choice);
-            ground.add_card(player_id, card.clone())?;
+            let player: &mut Player = get_player_mut!(self.players, round_starter_id);
+            player.remove_card(&player_choice).ok();
+            let card_code: String = player_choice.code();
+            ground.add_card(round_starter_id, player_choice)?;
             return player
-                .send_message(&GameMessage::RemoveCard { card: card.code() })
+                .send_message(&GameMessage::RemoveCard { card: card_code })
                 .await;
         }
         Ok(())
@@ -382,38 +372,30 @@ impl Game {
         let player_to_play_id: PlayerId = self.field[index % NUMBER_OF_PLAYERS];
         let mut error: String = String::new();
         loop {
-            let (hand_len, player_id) = {
-                let player: &Player = get_player!(self.players, player_to_play_id);
-                (player.hand.len(), player.id)
-            };
-            if let PlayerChoice::Choice(player_choice) = get_player_choice(
+            if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
                 get_player_mut!(self.players, player_to_play_id),
                 &mut GameMessage::PlayCard {
                     error: error.clone(),
                 },
                 false,
-                hand_len - 1,
+                0,
             )
             .await?
             {
-                let (has_matching_card, selected_card_type) = {
-                    let player: &Player = get_player!(self.players, player_to_play_id);
-                    let has_matching: bool = player
-                        .hand
-                        .iter()
-                        .any(|player_card: &Card| player_card.type_ == ground.type_);
-                    let selected_type: Hokm = player.hand[player_choice].type_.clone();
-                    (has_matching, selected_type)
-                };
-                if has_matching_card && selected_card_type != ground.type_ {
+                let has_matching_card: bool = get_player!(self.players, player_to_play_id)
+                    .hand
+                    .iter()
+                    .any(|player_card: &Card| player_card.type_ == ground.type_);
+                if has_matching_card && player_choice.type_ != ground.type_ {
                     error = format!("You have {}!\n", ground.type_.name());
                     continue;
                 }
                 let player: &mut Player = get_player_mut!(self.players, player_to_play_id);
-                let card: Card = player.hand.remove(player_choice);
-                ground.add_card(player_id, card.clone())?;
+                player.remove_card(&player_choice).ok();
+                let card_code: String = player_choice.code();
+                ground.add_card(player_to_play_id, player_choice)?;
                 return player
-                    .send_message(&GameMessage::RemoveCard { card: card.code() })
+                    .send_message(&GameMessage::RemoveCard { card: card_code })
                     .await;
             }
         }
@@ -547,7 +529,7 @@ impl Game {
                     .map(|(index, _)| index)
                     .ok_or(Error::player_not_found(round_starter_id))?;
                 let mut ground: Ground = Ground::new();
-                self.start_round(&mut ground, &round_starter_id).await?;
+                self.start_round(&mut ground, round_starter_id).await?;
                 for index in 1..NUMBER_OF_PLAYERS {
                     self.broadcast_message(BroadcastMessage::GroundCards {
                         ground_cards: self.get_ground_cards(&ground)?,

@@ -331,11 +331,8 @@ def print_scores(scores):
 
 def bet(response, sock):
     print_player_cards(False)
-    passed = False
     choice = choose("what is your bet: ", response["Bet"][0], 13, True)
-    if isinstance(choice, str):
-        choice, passed = 0, True
-    send_message(sock, create_player_choice(choice, passed))
+    send_message(sock, create_player_choice(str(choice)))
 
 
 def fold(response, sock):
@@ -344,7 +341,7 @@ def fold(response, sock):
     choice = choose(
         "Choose a card to fold: ", response["Fold"][0], len(player_cards) - 1, False
     )
-    send_message(sock, create_player_choice(choice, False))
+    send_message(sock, create_player_choice(player_cards[choice].code()))
 
 
 def set_hokm(response, sock):
@@ -354,14 +351,13 @@ def set_hokm(response, sock):
         hokms += [Hokm.NARAS, Hokm.SARAS, Hokm.TAK_NARAS]
     print(", ".join([f"{hokm}: {i}" for i, hokm in enumerate(hokms)]))
     choice = choose("What is your hokm? ", response["Hokm"][0], len(hokms) - 1, False)
-    send_message(sock, create_player_choice(choice, False))
+    send_message(sock, create_player_choice(hokms[choice].code()))
 
 
-def create_player_choice(choice, passable):
+def create_player_choice(choice):
     return {
         "PlayerChoice": {
-            "index": choice,
-            "passed": passable,
+            "choice": choice,
         }
     }
 
@@ -387,10 +383,10 @@ def play_card(response, sock):
                 and card.type != ground.type
             ):
                 if "You have " not in prompt:
-                    prompt = f"You have {ground.type.name()}!\n{prompt}"
+                    prompt = f"You have {ground.type.name_str()}!\n{prompt}"
                 continue
         break
-    send_message(sock, create_player_choice(choice, False))
+    send_message(sock, create_player_choice(player_cards[choice].code()))
 
 
 def add_ground_cards(response):
@@ -424,7 +420,7 @@ def print_broadcast(response):
                 if isinstance(bet[1], str):
                     bets.append(f"{bet[0]}: {bet[1]}")
                 else:
-                    bets.append(f"{bet[0]}: {bet[1]['Choice']}")
+                    bets.append(f"{bet[0]}: {bet[1]['NumberChoice']}")
             print(", ".join(bets))
         case BroadcastMessage.BET_WINNER:
             bet_winner = response["BetWinner"][0]
