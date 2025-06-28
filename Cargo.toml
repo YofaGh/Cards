@@ -10,7 +10,15 @@ dotenv = "0.15.0"
 itertools = "0.14.0"
 once_cell = "1.21.3"
 rand = "0.9.1"
+rcgen = { version = "0.11", optional = true }  # Add this line
 rmp-serde = "1.3.0"
+rustls = { version = "0.21", default-features = false }
+rustls-pemfile = "2.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.1", features = ["full"] }
+tokio-rustls = { version = "0.24", default-features = false }
 uuid = { version = "1.16.0", features = ["v4"] }
+
+[features]
+default = []
+dev-certs = ["rcgen"]

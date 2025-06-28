@@ -27,12 +27,7 @@ impl Game {
         Game::default()
     }
 
-    pub fn add_player(
-        &mut self,
-        name: String,
-        team_id: TeamId,
-        connection: TcpStream,
-    ) -> Result<()> {
+    pub fn add_player(&mut self, name: String, team_id: TeamId, connection: Stream) -> Result<()> {
         if self.get_player_count() >= NUMBER_OF_PLAYERS {
             return Err(Error::Other("Game is Full".to_owned()));
         }
@@ -68,7 +63,7 @@ impl Game {
             .collect()
     }
 
-    pub async fn handle_user(&mut self, mut connection: TcpStream, name: String) -> Result<()> {
+    pub async fn handle_user(&mut self, mut connection: Stream, name: String) -> Result<()> {
         let mut error: &str = "";
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;

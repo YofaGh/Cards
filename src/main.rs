@@ -3,6 +3,7 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Sender},
 };
+use tokio_rustls::TlsAcceptor;
 use {config::init_config, game::Game, prelude::*};
 
 mod config;
@@ -17,7 +18,13 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(all(debug_assertions, feature = "dev-certs"))]
+    if !std::path::Path::new("cert.pem").exists() || !std::path::Path::new("key.pem").exists() {
+        println!("Certificate files not found. Generating...");
+        generate_self_signed_cert_rust()?;
+    }
     init_config()?;
+    let tls_acceptor: TlsAcceptor = get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
     let mut game: Game = Game::new();
     game.initialize_game()?;
@@ -25,12 +32,20 @@ async fn main() -> Result<()> {
     spawn(async move {
         loop {
             match listener.accept().await {
-                Ok((mut stream, addr)) => {
-                    let player_tx: Sender<(TcpStream, String)> = player_tx.clone();
+                Ok((stream, addr)) => {
+                    let player_tx: Sender<(Stream, String)> = player_tx.clone();
+                    let acceptor: TlsAcceptor = tls_acceptor.clone();
                     spawn(async move {
-                        match handle_client(&mut stream).await {
+                        let mut tls_stream: Stream = match acceptor.accept(stream).await {
+                            Ok(tls_stream) => TlsStream::Server(tls_stream),
+                            Err(e) => {
+                                eprintln!("TLS handshake failed for {addr}: {e}");
+                                return;
+                            }
+                        };
+                        match handle_client(&mut tls_stream).await {
                             Ok(user) => {
-                                if let Err(e) = player_tx.send((stream, user)).await {
+                                if let Err(e) = player_tx.send((tls_stream, user)).await {
                                     eprintln!("Failed to send player to game: {e}");
                                 }
                             }
@@ -45,8 +60,8 @@ async fn main() -> Result<()> {
         }
     });
     while !game.is_full() {
-        if let Some((stream, user)) = player_rx.recv().await {
-            game.handle_user(stream, user).await?;
+        if let Some((tls_stream, user)) = player_rx.recv().await {
+            game.handle_user(tls_stream, user).await?;
         }
     }
     game.broadcast_message(BroadcastMessage::GameStarting)

@@ -15,6 +15,8 @@ pub enum Error {
     Other(String),
     Tcp(String),
     RmpSerde(String),
+    Tls(String),
+    FileOperation(String),
     NoValidCard,
 }
 
@@ -40,12 +42,21 @@ impl Error {
     pub fn serialization(err: EncodeError) -> Self {
         Self::RmpSerde(format!("Serialization error: {err}"))
     }
+    pub fn read_file(err: IoError) -> Self {
+        Self::FileOperation(format!("unable to read file error: {err}"))
+    }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
-            Error::Other(msg) | Error::Tcp(msg) | Error::RmpSerde(msg) => write!(f, "{msg}"),
+            Error::Other(msg)
+            | Error::Tcp(msg)
+            | Error::RmpSerde(msg)
+            | Error::Tls(msg)
+            | Error::FileOperation(msg) => {
+                write!(f, "{msg}")
+            }
             Error::Config(errors) => write!(f, "{}", errors.join("\n")),
             Error::InvalidResponse(req, res) => {
                 write!(f, "Expected {res} type from client, got {req} type")

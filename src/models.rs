@@ -96,11 +96,11 @@ pub struct Player {
     pub name: String,
     pub team_id: TeamId,
     pub hand: Vec<Card>,
-    pub connection: TcpStream,
+    pub connection: Stream,
 }
 
 impl Player {
-    pub fn new(name: String, team_id: TeamId, connection: TcpStream) -> Self {
+    pub fn new(name: String, team_id: TeamId, connection: Stream) -> Self {
         Player {
             id: PlayerId::new_v4(),
             name,

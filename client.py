@@ -1,6 +1,7 @@
 import os
 import socket
 import struct
+import ssl
 from dotenv import load_dotenv
 import msgpack
 from dataclasses import dataclass
@@ -207,7 +208,7 @@ def print_ground_cards():
     )
 
 
-def receive_message(sock: socket.socket):
+def receive_message(sock: ssl.SSLSocket):
     try:
         length_data = sock.recv(4)
         if len(length_data) != 4:
@@ -267,7 +268,7 @@ def get_broadcast_message_type(message) -> GameMessage:
         raise ValueError(f"Message should be string or dictionary, got {type(message)}")
 
 
-def send_message(sock: socket.socket, message_data) -> None:
+def send_message(sock: ssl.SSLSocket, message_data) -> None:
     try:
         data = msgpack.packb(message_data)
         length = len(data)
@@ -445,8 +446,12 @@ def main():
     global player_cards, ground_cards, cur_bet
     player_cards, ground_cards, cur_bet = [], [], 0
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    sock = context.wrap_socket(sock, server_hostname="localhost")
     host = os.getenv("SERVER_HOST", "localhost")
-    port = int(os.getenv("127.0.0.1", 12345))
+    port = int(os.getenv("SERVER_PORT", 12345))
     sock.connect((host, port))
     try:
         while True:

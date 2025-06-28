@@ -7,4 +7,4 @@ pub use crate::{
 };
 pub use itertools::Itertools;
 pub use std::collections::BTreeMap;
-pub use tokio::net::TcpStream;
+pub use tokio_rustls::TlsStream;
