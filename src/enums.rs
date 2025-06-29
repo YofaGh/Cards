@@ -99,15 +99,12 @@ pub enum GameMessage {
     Broadcast {
         message: BroadcastMessage,
     },
-    Username {
+    Demand {
+        demand: DemandMessage,
         error: String,
     },
     UsernameResponse {
         username: String,
-    },
-    TeamChoice {
-        available_teams: Vec<String>,
-        error: String,
     },
     TeamChoiceResponse {
         team_index: usize,
@@ -118,20 +115,8 @@ pub enum GameMessage {
     AddGroundCards {
         ground_cards: Vec<String>,
     },
-    Bet {
-        error: String,
-    },
     PlayerChoice {
         choice: String,
-    },
-    Fold {
-        error: String,
-    },
-    Hokm {
-        error: String,
-    },
-    PlayCard {
-        error: String,
     },
     RemoveCard {
         card: String,
@@ -144,66 +129,78 @@ impl GameMessage {
             GameMessage::Handshake => "Handshake".to_string(),
             GameMessage::HandshakeResponse => "HandshakeResponse".to_string(),
             GameMessage::Broadcast { .. } => "Broadcast".to_string(),
-            GameMessage::Username { .. } => "Username".to_string(),
+            GameMessage::Demand { demand, .. } => demand.message_type(),
             GameMessage::UsernameResponse { .. } => "UsernameResponse".to_string(),
-            GameMessage::TeamChoice { .. } => "TeamChoice".to_string(),
-            GameMessage::TeamChoiceResponse { .. } => "TeamChoice".to_string(),
+            GameMessage::TeamChoiceResponse { .. } => "TeamChoiceResponse".to_string(),
             GameMessage::Cards { .. } => "Cards".to_string(),
             GameMessage::AddGroundCards { .. } => "AddGroundCards".to_string(),
-            GameMessage::Bet { .. } => "Bet".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),
-            GameMessage::Fold { .. } => "Fold".to_string(),
-            GameMessage::Hokm { .. } => "Hokm".to_string(),
-            GameMessage::PlayCard { .. } => "PlayCard".to_string(),
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
         }
     }
-    pub fn set_error(&mut self, new_error: String) {
-        match self {
-            GameMessage::Username { error } => {
-                *error = new_error;
-            }
-            GameMessage::TeamChoice { error, .. } => {
-                *error = new_error;
-            }
-            GameMessage::Bet { error } => {
-                *error = new_error;
-            }
-            GameMessage::Fold { error } => {
-                *error = new_error;
-            }
-            GameMessage::Hokm { error } => {
-                *error = new_error;
-            }
-            GameMessage::PlayCard { error } => {
-                *error = new_error;
-            }
-            _ => {}
+    pub fn set_demand_error(&mut self, new_error: String) {
+        let GameMessage::Demand { error, .. } = self else {
+            panic!("set_demand_error called on non-Demand message");
+        };
+        *error = new_error;
+    }
+    pub fn team(available_teams: Vec<String>, error: String) -> Self {
+        GameMessage::Demand {
+            demand: DemandMessage::Team { available_teams },
+            error,
         }
     }
     pub fn bet() -> Self {
-        GameMessage::Bet {
+        GameMessage::Demand {
+            demand: DemandMessage::Bet,
             error: String::new(),
         }
     }
     pub fn fold() -> Self {
-        GameMessage::Fold {
+        GameMessage::Demand {
+            demand: DemandMessage::Fold,
             error: String::new(),
         }
     }
     pub fn username() -> Self {
-        GameMessage::Username {
+        GameMessage::Demand {
+            demand: DemandMessage::Username,
             error: String::new(),
         }
     }
     pub fn hokm() -> Self {
-        GameMessage::Hokm {
+        GameMessage::Demand {
+            demand: DemandMessage::Hokm,
             error: String::new(),
         }
     }
     pub fn play_card() -> Self {
-        GameMessage::PlayCard {
+        GameMessage::Demand {
+            demand: DemandMessage::PlayCard,
             error: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum DemandMessage {
+    Username,
+    Team { available_teams: Vec<String> },
+    Bet,
+    Fold,
+    Hokm,
+    PlayCard,
+}
+
+impl DemandMessage {
+    pub fn message_type(&self) -> String {
+        match self {
+            DemandMessage::Username => "Username".to_string(),
+            DemandMessage::Team { .. } => "Team".to_string(),
+            DemandMessage::Bet => "Bet".to_string(),
+            DemandMessage::Fold => "Fold".to_string(),
+            DemandMessage::Hokm => "Hokm".to_string(),
+            DemandMessage::PlayCard => "PlayCard".to_string(),
         }
     }
 }

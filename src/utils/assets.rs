@@ -29,7 +29,7 @@ pub async fn get_player_choice(
                     if passable {
                         return Ok(PlayerChoice::Pass);
                     }
-                    message.set_error("You can't pass this one".to_owned());
+                    message.set_demand_error("You can't pass this one".to_owned());
                 } else if message.message_type() == "Hokm" {
                     return Ok(PlayerChoice::HokmChoice(Hokm::from(choice)));
                 } else if message.message_type() == "Bet" {
@@ -37,9 +37,10 @@ pub async fn get_player_choice(
                         if choice <= max_value {
                             return Ok(PlayerChoice::NumberChoice(choice));
                         }
-                        message.set_error(format!("Choice can't be greater than {max_value}"));
+                        message
+                            .set_demand_error(format!("Choice can't be greater than {max_value}"));
                     } else {
-                        message.set_error(INVALID_RESPONSE.to_owned());
+                        message.set_demand_error(INVALID_RESPONSE.to_owned());
                     }
                 } else {
                     match Card::try_from(choice) {
@@ -47,14 +48,14 @@ pub async fn get_player_choice(
                             if player.hand.contains(&card) {
                                 return Ok(PlayerChoice::CardChoice(card));
                             }
-                            message.set_error("You don't have this card!".to_owned());
+                            message.set_demand_error("You don't have this card!".to_owned());
                         }
-                        Err(_) => message.set_error(INVALID_RESPONSE.to_owned()),
+                        Err(_) => message.set_demand_error(INVALID_RESPONSE.to_owned()),
                     }
                 }
             }
             invalid => {
-                message.set_error(format!(
+                message.set_demand_error(format!(
                     "Expected message type PlayerChoice, but received {}",
                     invalid.message_type()
                 ));
@@ -132,7 +133,7 @@ pub async fn handle_client(connection: &mut Stream) -> Result<String> {
                 if !username.is_empty() {
                     return Ok(username);
                 }
-                message.set_error("Username can not be empty!".to_owned());
+                message.set_demand_error("Username can not be empty!".to_owned());
             }
             invalid => {
                 close_connection(connection).await?;

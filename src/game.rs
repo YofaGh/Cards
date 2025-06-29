@@ -67,13 +67,13 @@ impl Game {
         let mut error: String = String::new();
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
-            let message: GameMessage = GameMessage::TeamChoice {
-                available_teams: available_teams
+            let message: GameMessage = GameMessage::team(
+                available_teams
                     .iter()
                     .map(|(_, team_name)| team_name.clone())
                     .collect(),
-                error: error.to_string(),
-            };
+                error.clone(),
+            );
             send_message(&mut connection, &message).await?;
             let response: GameMessage = receive_message(&mut connection).await?;
             match response {
@@ -81,7 +81,9 @@ impl Game {
                     if team_index < available_teams.len() {
                         self.add_player(name, available_teams[team_index].0, connection)?;
                         return Ok(());
-                    };
+                    } else {
+                        error = format!("Choice can't be greater than {}", available_teams.len())
+                    }
                 }
                 _ => error = INVALID_RESPONSE.to_owned(),
             }
@@ -227,7 +229,8 @@ impl Game {
                     })
                     .await?;
                 } else {
-                    message.set_error(INVALID_RESPONSE.to_owned());
+                    message.set_demand_error(INVALID_RESPONSE.to_owned());
+                    continue;
                 }
             }
             return Ok(());
@@ -447,7 +450,7 @@ impl Game {
                         .iter()
                         .any(|player_card: &Card| player_card.type_ == ground.type_);
                     if has_matching_card && player_choice.type_ != ground.type_ {
-                        message.set_error(format!("You have {}!\n", ground.type_.name()));
+                        message.set_demand_error(format!("You have {}!\n", ground.type_.name()));
                         continue;
                     }
                 }

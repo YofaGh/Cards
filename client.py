@@ -132,9 +132,9 @@ class GameMessage(Enum):
     HANDSHAKE = "Handshake"
     HANDSHAKE_RESPONSE = "HandshakeResponse"
     BROADCAST = "Broadcast"
+    DEMAND = "Demand"
     USERNAME = "Username"
     USERNAME_RESPONSE = "UsernameResponse"
-    TEAM_CHOICE = "TeamChoice"
     TEAM_CHOICE_RESPONSE = "TeamChoiceResponse"
     CARDS = "Cards"
     ADD_GROUND_CARDS = "AddGroundCards"
@@ -158,6 +158,15 @@ class BroadcastMessage(Enum):
     GAME_WINNER = "GameWinner"
     GAME_SCORE = "GameScore"
     ROUND_SCORE = "RoundScore"
+
+
+class DemandMessage(Enum):
+    USERNAME = "Username"
+    TEAM = "Team"
+    BET = "Bet"
+    FOLD = "Fold"
+    HOKM = "Hokm"
+    PLAY_CARD = "PlayCard"
 
 
 def set_player_cards(response):
@@ -268,6 +277,24 @@ def get_broadcast_message_type(message) -> GameMessage:
         raise ValueError(f"Message should be string or dictionary, got {type(message)}")
 
 
+def get_demand_message_type(message) -> GameMessage:
+    if isinstance(message, str):
+        try:
+            return DemandMessage(message)
+        except ValueError:
+            raise ValueError(f"Unknown message type: {message}")
+    elif isinstance(message, dict):
+        if len(message) != 1:
+            raise ValueError("Message should have exactly one key")
+        message_type = list(message.keys())[0]
+        try:
+            return DemandMessage(message_type)
+        except ValueError:
+            raise ValueError(f"Unknown message type: {message_type}")
+    else:
+        raise ValueError(f"Message should be string or dictionary, got {type(message)}")
+
+
 def send_message(message_data) -> None:
     try:
         data = msgpack.packb(message_data)
@@ -278,8 +305,8 @@ def send_message(message_data) -> None:
         raise ConnectionError(f"Error sending message: {e}")
 
 
-def team_choice(response):
-    available_teams = response["TeamChoice"][0]
+def team_choice(message, error):
+    available_teams = message["Team"][0]
     print(
         ", ".join(
             [
@@ -289,7 +316,7 @@ def team_choice(response):
         )
     )
     choice = choose(
-        "Choose a team: ", response["TeamChoice"][1], len(available_teams) - 1, False
+        "Choose a team: ", error, len(available_teams) - 1, False
     )
     team_response = {"TeamChoiceResponse": {"team_index": choice}}
     send_message(team_response)
@@ -316,10 +343,9 @@ def choose(prompt, server_error, max_value, passable):
             print("Please enter a valid number")
 
 
-def username(response):
-    server_error = response["Username"][0]
-    if server_error:
-        print(f"Server error: {server_error}")
+def username(error):
+    if error:
+        print(f"Server error: {error}")
     while True:
         username = input("Enter your username: ")
         if username:
@@ -337,28 +363,28 @@ def print_scores(scores):
     print(", ".join([f"{team_score[0]}: {team_score[1]}" for team_score in scores]))
 
 
-def bet(response):
+def bet(error):
     print_player_cards(False)
-    choice = choose("what is your bet: ", response["Bet"][0], 13, True)
+    choice = choose("what is your bet: ", error, 13, True)
     send_message(create_player_choice(str(choice)))
 
 
-def fold(response):
+def fold(error):
     global player_cards
     print_player_cards(True)
     choice = choose(
-        "Choose a card to fold: ", response["Fold"][0], len(player_cards) - 1, False
+        "Choose a card to fold: ", error, len(player_cards) - 1, False
     )
     send_message(create_player_choice(player_cards[choice].code()))
 
 
-def set_hokm(response):
+def set_hokm(error):
     print_player_cards(False)
     hokms = [Hokm.SPADES, Hokm.HEARTS, Hokm.DIAMONDS, Hokm.CLUBS]
     if cur_bet == 13:
         hokms += [Hokm.NARAS, Hokm.SARAS, Hokm.TAK_NARAS]
     print(", ".join([f"{hokm}: {i}" for i, hokm in enumerate(hokms)]))
-    choice = choose("What is your hokm? ", response["Hokm"][0], len(hokms) - 1, False)
+    choice = choose("What is your hokm? ", error, len(hokms) - 1, False)
     send_message(create_player_choice(hokms[choice].code()))
 
 
@@ -375,14 +401,14 @@ def sort_player_cards():
     player_cards.sort(key=lambda card: (card.type.name_str(), card.ord))
 
 
-def play_card(response):
+def play_card(error):
     global player_cards
     print_hokm()
     print_player_cards(True)
     print_ground_cards()
     prompt = "Choose a card to play: "
     while True:
-        choice = choose(prompt, response["PlayCard"][0], len(player_cards) - 1, False)
+        choice = choose(prompt, error, len(player_cards) - 1, False)
         if ground_cards:
             ground = ground_cards[0][1]
             card = player_cards[choice]
@@ -449,6 +475,25 @@ def print_broadcast(response):
             print(f"Pattern match: Unknown message type: {response}")
 
 
+def handle_demand(response):
+    message, error = response["Demand"]
+    match get_demand_message_type(message):
+        case DemandMessage.USERNAME:
+            username(error)
+        case DemandMessage.TEAM:
+            team_choice(message, error)
+        case DemandMessage.BET:
+            bet(error)
+        case DemandMessage.FOLD:
+            fold(error)
+        case DemandMessage.HOKM:
+            set_hokm(error)
+        case DemandMessage.PLAY_CARD:
+            play_card(error)
+        case _:
+            print("Pattern match: Unknown message type")
+
+
 def main():
     global player_cards, ground_cards, cur_bet, sock
     player_cards, ground_cards, cur_bet = [], [], 0
@@ -468,24 +513,14 @@ def main():
                     handshake()
                 case GameMessage.BROADCAST:
                     print_broadcast(response)
-                case GameMessage.USERNAME:
-                    username(response)
-                case GameMessage.TEAM_CHOICE:
-                    team_choice(response)
+                case GameMessage.DEMAND:
+                    handle_demand(response)
                 case GameMessage.CARDS:
                     set_player_cards(response)
                     print_player_cards(False)
-                case GameMessage.BET:
-                    bet(response)
                 case GameMessage.ADD_GROUND_CARDS:
                     add_ground_cards(response)
                     print_player_cards(False)
-                case GameMessage.FOLD:
-                    fold(response)
-                case GameMessage.HOKM:
-                    set_hokm(response)
-                case GameMessage.PLAY_CARD:
-                    play_card(response)
                 case GameMessage.REMOVE_CARD:
                     remove_card(response)
                 case _:
