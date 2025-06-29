@@ -21,9 +21,7 @@ pub async fn get_player_choice(
     passable: bool,
     max_value: usize,
 ) -> Result<PlayerChoice> {
-    let mut error: String = String::new();
     loop {
-        message.set_error(error.clone());
         player.send_message(message).await?;
         match player.receive_message().await? {
             GameMessage::PlayerChoice { choice } => {
@@ -31,7 +29,7 @@ pub async fn get_player_choice(
                     if passable {
                         return Ok(PlayerChoice::Pass);
                     }
-                    error = "You can't pass this one".to_owned();
+                    message.set_error("You can't pass this one".to_owned());
                 } else if message.message_type() == "Hokm" {
                     return Ok(PlayerChoice::HokmChoice(Hokm::from(choice)));
                 } else if message.message_type() == "Bet" {
@@ -39,9 +37,9 @@ pub async fn get_player_choice(
                         if choice <= max_value {
                             return Ok(PlayerChoice::NumberChoice(choice));
                         }
-                        error = format!("Choice can't be greater than {max_value}");
+                        message.set_error(format!("Choice can't be greater than {max_value}"));
                     } else {
-                        error = INVALID_RESPONSE.to_owned();
+                        message.set_error(INVALID_RESPONSE.to_owned());
                     }
                 } else {
                     match Card::try_from(choice) {
@@ -49,17 +47,17 @@ pub async fn get_player_choice(
                             if player.hand.contains(&card) {
                                 return Ok(PlayerChoice::CardChoice(card));
                             }
-                            error = format!("You don't have this card!");
+                            message.set_error("You don't have this card!".to_owned());
                         }
-                        Err(_) => error = INVALID_RESPONSE.to_owned(),
+                        Err(_) => message.set_error(INVALID_RESPONSE.to_owned()),
                     }
                 }
             }
             invalid => {
-                error = format!(
+                message.set_error(format!(
                     "Expected message type PlayerChoice, but received {}",
                     invalid.message_type()
-                );
+                ));
             }
         }
     }

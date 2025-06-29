@@ -28,7 +28,7 @@ impl Game {
     }
 
     pub fn add_player(&mut self, name: String, team_id: TeamId, connection: Stream) -> Result<()> {
-        if self.get_player_count() >= NUMBER_OF_PLAYERS {
+        if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
         }
         let player: Player = Player::new(name, team_id, connection);
@@ -190,7 +190,7 @@ impl Game {
         let team_id: TeamId = get_player!(self.players, player_id).team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
         let mut message: GameMessage = GameMessage::Fold {
-            error: "".to_string(),
+            error: String::new(),
         };
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id);
@@ -218,7 +218,7 @@ impl Game {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let player: &mut Player = get_player_mut!(self.players, player_id);
         let mut message: GameMessage = GameMessage::Hokm {
-            error: "".to_string(),
+            error: String::new(),
         };
         loop {
             if let PlayerChoice::HokmChoice(player_choice) =
@@ -302,7 +302,7 @@ impl Game {
         loop {
             for player_id in self.field.clone().into_iter() {
                 let mut message: GameMessage = GameMessage::Bet {
-                    error: "".to_string(),
+                    error: String::new(),
                 };
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_choice: PlayerChoice =
@@ -337,61 +337,6 @@ impl Game {
                 })
                 .await?;
                 return Ok((highest_bet, highest_bettor_id, team_id));
-            }
-        }
-    }
-
-    async fn start_round(&mut self, ground: &mut Ground, round_starter_id: PlayerId) -> Result<()> {
-        if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
-            get_player_mut!(self.players, round_starter_id),
-            &mut GameMessage::PlayCard {
-                error: "".to_string(),
-            },
-            false,
-            0,
-        )
-        .await?
-        {
-            let player: &mut Player = get_player_mut!(self.players, round_starter_id);
-            player.remove_card(&player_choice).ok();
-            let card_code: String = player_choice.code();
-            ground.add_card(round_starter_id, player_choice)?;
-            return player
-                .send_message(&GameMessage::RemoveCard { card: card_code })
-                .await;
-        }
-        Ok(())
-    }
-
-    async fn continue_round(&mut self, ground: &mut Ground, index: usize) -> Result<()> {
-        let player_to_play_id: PlayerId = self.field[index % NUMBER_OF_PLAYERS];
-        let mut error: String = String::new();
-        loop {
-            if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
-                get_player_mut!(self.players, player_to_play_id),
-                &mut GameMessage::PlayCard {
-                    error: error.clone(),
-                },
-                false,
-                0,
-            )
-            .await?
-            {
-                let has_matching_card: bool = get_player!(self.players, player_to_play_id)
-                    .hand
-                    .iter()
-                    .any(|player_card: &Card| player_card.type_ == ground.type_);
-                if has_matching_card && player_choice.type_ != ground.type_ {
-                    error = format!("You have {}!\n", ground.type_.name());
-                    continue;
-                }
-                let player: &mut Player = get_player_mut!(self.players, player_to_play_id);
-                player.remove_card(&player_choice).ok();
-                let card_code: String = player_choice.code();
-                ground.add_card(player_to_play_id, player_choice)?;
-                return player
-                    .send_message(&GameMessage::RemoveCard { card: card_code })
-                    .await;
             }
         }
     }
@@ -490,6 +435,41 @@ impl Game {
             .collect()
     }
 
+    async fn play_card(&mut self, ground: &mut Ground, player_id: PlayerId) -> Result<()> {
+        let is_round_starter: bool = ground.cards.is_empty();
+        let mut message: GameMessage = GameMessage::PlayCard {
+            error: String::new(),
+        };
+        loop {
+            if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
+                get_player_mut!(self.players, player_id),
+                &mut message,
+                false,
+                0,
+            )
+            .await?
+            {
+                if !is_round_starter {
+                    let has_matching_card: bool = get_player!(self.players, player_id)
+                        .hand
+                        .iter()
+                        .any(|player_card: &Card| player_card.type_ == ground.type_);
+                    if has_matching_card && player_choice.type_ != ground.type_ {
+                        message.set_error(format!("You have {}!\n", ground.type_.name()));
+                        continue;
+                    }
+                }
+                let player: &mut Player = get_player_mut!(self.players, player_id);
+                player.remove_card(&player_choice).ok();
+                let card_code: String = player_choice.code();
+                ground.add_card(player_id, player_choice)?;
+                return player
+                    .send_message(&GameMessage::RemoveCard { card: card_code })
+                    .await;
+            }
+        }
+    }
+
     pub async fn run_game(&mut self) -> Result<()> {
         self.started = true;
         self.generate_field()?;
@@ -524,14 +504,15 @@ impl Game {
                     .map(|(index, _)| index)
                     .ok_or(Error::player_not_found(round_starter_id))?;
                 let mut ground: Ground = Ground::new();
-                self.start_round(&mut ground, round_starter_id).await?;
+                self.play_card(&mut ground, round_starter_id).await?;
                 for index in 1..NUMBER_OF_PLAYERS {
                     self.broadcast_message(BroadcastMessage::GroundCards {
                         ground_cards: self.get_ground_cards(&ground)?,
                     })
                     .await?;
-                    self.continue_round(&mut ground, round_starter_index + index)
-                        .await?;
+                    let player_to_play_id: PlayerId =
+                        self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
+                    self.play_card(&mut ground, player_to_play_id).await?;
                 }
                 round_starter_id = self.get_hand_collector_id(&ground)?;
                 self.collect_hand(round_starter_id, ground)?;
