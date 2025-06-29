@@ -64,7 +64,7 @@ impl Game {
     }
 
     pub async fn handle_user(&mut self, mut connection: Stream, name: String) -> Result<()> {
-        let mut error: &str = "";
+        let mut error: String = String::new();
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
             let message: GameMessage = GameMessage::TeamChoice {
@@ -83,7 +83,7 @@ impl Game {
                         return Ok(());
                     };
                 }
-                _ => error = INVALID_RESPONSE,
+                _ => error = INVALID_RESPONSE.to_owned(),
             }
         }
     }
@@ -189,9 +189,7 @@ impl Game {
     async fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
         let team_id: TeamId = get_player!(self.players, player_id).team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
-        let mut message: GameMessage = GameMessage::Fold {
-            error: String::new(),
-        };
+        let mut message: GameMessage = GameMessage::fold();
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id);
             if player.hand.len() <= 12 {
@@ -217,9 +215,7 @@ impl Game {
     async fn set_hokm(&mut self, player_id: PlayerId, bet: usize) -> Result<()> {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let player: &mut Player = get_player_mut!(self.players, player_id);
-        let mut message: GameMessage = GameMessage::Hokm {
-            error: String::new(),
-        };
+        let mut message: GameMessage = GameMessage::hokm();
         loop {
             if let PlayerChoice::HokmChoice(player_choice) =
                 get_player_choice(player, &mut message, false, hokms.len() - 1).await?
@@ -301,9 +297,7 @@ impl Game {
         let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
         loop {
             for player_id in self.field.clone().into_iter() {
-                let mut message: GameMessage = GameMessage::Bet {
-                    error: String::new(),
-                };
+                let mut message: GameMessage = GameMessage::bet();
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_choice: PlayerChoice =
                     get_player_choice(player, &mut message, true, HIGHEST_BET).await?;
@@ -437,9 +431,7 @@ impl Game {
 
     async fn play_card(&mut self, ground: &mut Ground, player_id: PlayerId) -> Result<()> {
         let is_round_starter: bool = ground.cards.is_empty();
-        let mut message: GameMessage = GameMessage::PlayCard {
-            error: String::new(),
-        };
+        let mut message: GameMessage = GameMessage::play_card();
         loop {
             if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
                 get_player_mut!(self.players, player_id),

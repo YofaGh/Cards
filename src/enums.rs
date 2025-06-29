@@ -99,7 +99,9 @@ pub enum GameMessage {
     Broadcast {
         message: BroadcastMessage,
     },
-    Username,
+    Username {
+        error: String,
+    },
     UsernameResponse {
         username: String,
     },
@@ -142,7 +144,7 @@ impl GameMessage {
             GameMessage::Handshake => "Handshake".to_string(),
             GameMessage::HandshakeResponse => "HandshakeResponse".to_string(),
             GameMessage::Broadcast { .. } => "Broadcast".to_string(),
-            GameMessage::Username => "Username".to_string(),
+            GameMessage::Username { .. } => "Username".to_string(),
             GameMessage::UsernameResponse { .. } => "UsernameResponse".to_string(),
             GameMessage::TeamChoice { .. } => "TeamChoice".to_string(),
             GameMessage::TeamChoiceResponse { .. } => "TeamChoice".to_string(),
@@ -158,6 +160,9 @@ impl GameMessage {
     }
     pub fn set_error(&mut self, new_error: String) {
         match self {
+            GameMessage::Username { error } => {
+                *error = new_error;
+            }
             GameMessage::TeamChoice { error, .. } => {
                 *error = new_error;
             }
@@ -174,6 +179,31 @@ impl GameMessage {
                 *error = new_error;
             }
             _ => {}
+        }
+    }
+    pub fn bet() -> Self {
+        GameMessage::Bet {
+            error: String::new(),
+        }
+    }
+    pub fn fold() -> Self {
+        GameMessage::Fold {
+            error: String::new(),
+        }
+    }
+    pub fn username() -> Self {
+        GameMessage::Username {
+            error: String::new(),
+        }
+    }
+    pub fn hokm() -> Self {
+        GameMessage::Hokm {
+            error: String::new(),
+        }
+    }
+    pub fn play_card() -> Self {
+        GameMessage::PlayCard {
+            error: String::new(),
         }
     }
 }

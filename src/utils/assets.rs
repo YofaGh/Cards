@@ -124,15 +124,23 @@ pub async fn handshake(connection: &mut Stream) -> Result<()> {
 
 pub async fn handle_client(connection: &mut Stream) -> Result<String> {
     handshake(connection).await?;
-    send_message(connection, &GameMessage::Username).await?;
-    match receive_message(connection).await? {
-        GameMessage::UsernameResponse { username } => Ok(username),
-        invalid => {
-            close_connection(connection).await?;
-            Err(Error::InvalidResponse(
-                "UsernameResponse".to_string(),
-                invalid.message_type(),
-            ))
+    let mut message: GameMessage = GameMessage::username();
+    loop {
+        send_message(connection, &message).await?;
+        match receive_message(connection).await? {
+            GameMessage::UsernameResponse { username } => {
+                if !username.is_empty() {
+                    return Ok(username);
+                }
+                message.set_error("Username can not be empty!".to_owned());
+            }
+            invalid => {
+                close_connection(connection).await?;
+                return Err(Error::InvalidResponse(
+                    "UsernameResponse".to_string(),
+                    invalid.message_type(),
+                ));
+            }
         }
     }
 }

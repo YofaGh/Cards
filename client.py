@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-global player_cards, ground_cards, cur_bet, hokm
+global player_cards, ground_cards, cur_bet, hokm, sock
 
 
 class Hokm(Enum):
@@ -208,7 +208,7 @@ def print_ground_cards():
     )
 
 
-def receive_message(sock: ssl.SSLSocket):
+def receive_message():
     try:
         length_data = sock.recv(4)
         if len(length_data) != 4:
@@ -268,7 +268,7 @@ def get_broadcast_message_type(message) -> GameMessage:
         raise ValueError(f"Message should be string or dictionary, got {type(message)}")
 
 
-def send_message(sock: ssl.SSLSocket, message_data) -> None:
+def send_message(message_data) -> None:
     try:
         data = msgpack.packb(message_data)
         length = len(data)
@@ -278,7 +278,7 @@ def send_message(sock: ssl.SSLSocket, message_data) -> None:
         raise ConnectionError(f"Error sending message: {e}")
 
 
-def team_choice(response, sock):
+def team_choice(response):
     available_teams = response["TeamChoice"][0]
     print(
         ", ".join(
@@ -292,7 +292,7 @@ def team_choice(response, sock):
         "Choose a team: ", response["TeamChoice"][1], len(available_teams) - 1, False
     )
     team_response = {"TeamChoiceResponse": {"team_index": choice}}
-    send_message(sock, team_response)
+    send_message(team_response)
 
 
 def choose(prompt, server_error, max_value, passable):
@@ -316,43 +316,50 @@ def choose(prompt, server_error, max_value, passable):
             print("Please enter a valid number")
 
 
-def username(sock):
-    username = input("Enter your username: ")
+def username(response):
+    server_error = response["Username"][0]
+    if server_error:
+        print(f"Server error: {server_error}")
+    while True:
+        username = input("Enter your username: ")
+        if username:
+            break
+        print("Username can not be empty!")
     username_response = {"UsernameResponse": {"username": username}}
-    send_message(sock, username_response)
+    send_message(username_response)
 
 
-def handshake(sock):
-    send_message(sock, GameMessage.HANDSHAKE_RESPONSE.value)
+def handshake():
+    send_message(GameMessage.HANDSHAKE_RESPONSE.value)
 
 
 def print_scores(scores):
     print(", ".join([f"{team_score[0]}: {team_score[1]}" for team_score in scores]))
 
 
-def bet(response, sock):
+def bet(response):
     print_player_cards(False)
     choice = choose("what is your bet: ", response["Bet"][0], 13, True)
-    send_message(sock, create_player_choice(str(choice)))
+    send_message(create_player_choice(str(choice)))
 
 
-def fold(response, sock):
+def fold(response):
     global player_cards
     print_player_cards(True)
     choice = choose(
         "Choose a card to fold: ", response["Fold"][0], len(player_cards) - 1, False
     )
-    send_message(sock, create_player_choice(player_cards[choice].code()))
+    send_message(create_player_choice(player_cards[choice].code()))
 
 
-def set_hokm(response, sock):
+def set_hokm(response):
     print_player_cards(False)
     hokms = [Hokm.SPADES, Hokm.HEARTS, Hokm.DIAMONDS, Hokm.CLUBS]
     if cur_bet == 13:
         hokms += [Hokm.NARAS, Hokm.SARAS, Hokm.TAK_NARAS]
     print(", ".join([f"{hokm}: {i}" for i, hokm in enumerate(hokms)]))
     choice = choose("What is your hokm? ", response["Hokm"][0], len(hokms) - 1, False)
-    send_message(sock, create_player_choice(hokms[choice].code()))
+    send_message(create_player_choice(hokms[choice].code()))
 
 
 def create_player_choice(choice):
@@ -368,7 +375,7 @@ def sort_player_cards():
     player_cards.sort(key=lambda card: (card.type.name_str(), card.ord))
 
 
-def play_card(response, sock):
+def play_card(response):
     global player_cards
     print_hokm()
     print_player_cards(True)
@@ -387,7 +394,7 @@ def play_card(response, sock):
                     prompt = f"You have {ground.type.name_str()}!\n{prompt}"
                 continue
         break
-    send_message(sock, create_player_choice(player_cards[choice].code()))
+    send_message(create_player_choice(player_cards[choice].code()))
 
 
 def add_ground_cards(response):
@@ -443,7 +450,7 @@ def print_broadcast(response):
 
 
 def main():
-    global player_cards, ground_cards, cur_bet
+    global player_cards, ground_cards, cur_bet, sock
     player_cards, ground_cards, cur_bet = [], [], 0
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     context = ssl.create_default_context()
@@ -455,30 +462,30 @@ def main():
     sock.connect((host, port))
     try:
         while True:
-            response = receive_message(sock)
+            response = receive_message()
             match get_message_type(response):
                 case GameMessage.HANDSHAKE:
-                    handshake(sock)
+                    handshake()
                 case GameMessage.BROADCAST:
                     print_broadcast(response)
                 case GameMessage.USERNAME:
-                    username(sock)
+                    username(response)
                 case GameMessage.TEAM_CHOICE:
-                    team_choice(response, sock)
+                    team_choice(response)
                 case GameMessage.CARDS:
                     set_player_cards(response)
                     print_player_cards(False)
                 case GameMessage.BET:
-                    bet(response, sock)
+                    bet(response)
                 case GameMessage.ADD_GROUND_CARDS:
                     add_ground_cards(response)
                     print_player_cards(False)
                 case GameMessage.FOLD:
-                    fold(response, sock)
+                    fold(response)
                 case GameMessage.HOKM:
-                    set_hokm(response, sock)
+                    set_hokm(response)
                 case GameMessage.PLAY_CARD:
-                    play_card(response, sock)
+                    play_card(response)
                 case GameMessage.REMOVE_CARD:
                     remove_card(response)
                 case _:
