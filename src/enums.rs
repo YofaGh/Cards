@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use crate::models::Card;
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub enum Hokm {
     Spades,
     Hearts,
@@ -12,6 +12,7 @@ pub enum Hokm {
     Naras,
     Saras,
     TakNaras,
+    #[default]
     Default,
 }
 
@@ -69,12 +70,6 @@ impl From<String> for Hokm {
             "T" => Hokm::TakNaras,
             _ => Hokm::Default,
         }
-    }
-}
-
-impl Default for Hokm {
-    fn default() -> Self {
-        Hokm::Default
     }
 }
 

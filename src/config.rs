@@ -58,10 +58,10 @@ impl Config {
             errors.push("Server port must be greater than 0".to_string());
         }
         if !cert_path.exists() {
-            errors.push(format!("Tls cert.pem was not found: {:?}", cert_path));
+            errors.push(format!("Tls cert.pem was not found: {cert_path:?}"));
         }
         if !key_path.exists() {
-            errors.push(format!("Tls key.pem was not found: {:?}", key_path));
+            errors.push(format!("Tls key.pem was not found: {key_path:?}"));
         }
         if errors.is_empty() {
             Ok(())

@@ -64,7 +64,7 @@ pub async fn get_player_choice(
     }
 }
 
-pub fn code_cards(cards: &Vec<Card>) -> Vec<String> {
+pub fn code_cards(cards: &[Card]) -> Vec<String> {
     cards.iter().map(|card: &Card| card.code()).collect()
 }
 
@@ -178,13 +178,13 @@ fn load_tls_config() -> Result<Arc<ServerConfig>> {
     let key_file: Vec<u8> = read_file(&config.tls.key)?;
     let cert_chain: Vec<Certificate> = rustls_pemfile::certs(&mut cert_file.as_slice())
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e: IoError| Error::Tls(format!("Failed to parse certificates: {}", e)))?
+        .map_err(|e: IoError| Error::Tls(format!("Failed to parse certificates: {e}")))?
         .into_iter()
         .map(|cert| Certificate(cert.to_vec()))
         .collect();
     let keys: Vec<Vec<u8>> = rustls_pemfile::pkcs8_private_keys(&mut key_file.as_slice())
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e: IoError| Error::Tls(format!("Failed to parse private keys: {}", e)))?
+        .map_err(|e: IoError| Error::Tls(format!("Failed to parse private keys: {e}")))?
         .into_iter()
         .map(|key| key.secret_pkcs8_der().to_vec())
         .collect();
@@ -199,7 +199,7 @@ fn load_tls_config() -> Result<Arc<ServerConfig>> {
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, PrivateKey(first_key))
-        .map_err(|e: rustls::Error| Error::Tls(format!("Failed to build TLS config: {}", e)))?;
+        .map_err(|e: rustls::Error| Error::Tls(format!("Failed to build TLS config: {e}")))?;
     Ok(Arc::new(tls_config))
 }
 
