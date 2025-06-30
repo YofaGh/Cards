@@ -4,6 +4,7 @@ use tokio::{
     sync::mpsc::{channel, Sender},
 };
 use tokio_rustls::TlsAcceptor;
+
 use {config::init_config, game::Game, prelude::*};
 
 mod config;
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
                     let acceptor: TlsAcceptor = tls_acceptor.clone();
                     spawn(async move {
                         let mut tls_stream: Stream = match acceptor.accept(stream).await {
-                            Ok(tls_stream) => TlsStream::Server(tls_stream),
+                            Ok(tls_stream) => Stream::Server(tls_stream),
                             Err(e) => {
                                 eprintln!("TLS handshake failed for {addr}: {e}");
                                 return;

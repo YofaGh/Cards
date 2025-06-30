@@ -18,6 +18,7 @@ pub struct Game {
     starter: PlayerId,
     hokm: Hokm,
     shuffler: Shuffler,
+    ground: Ground,
     pub started: bool,
     pub finished: bool,
 }
@@ -116,8 +117,8 @@ impl Game {
         Ok(())
     }
 
-    fn get_ground_cards(&self, ground: &Ground) -> Result<Vec<(String, String)>> {
-        ground
+    fn get_ground_cards(&self) -> Result<Vec<(String, String)>> {
+        self.ground
             .cards
             .iter()
             .map(|(player_id, card)| {
@@ -235,22 +236,25 @@ impl Game {
         }
     }
 
-    fn get_hand_collector_id(&self, ground: &Ground) -> Result<PlayerId> {
+    fn get_hand_collector_id(&self) -> Result<PlayerId> {
         let winner_id: Option<&(PlayerId, Card)> = match self.hokm {
-            Hokm::Naras => ground
+            Hokm::Naras => self
+                .ground
                 .cards
                 .iter()
-                .filter(|(_, card)| card.type_ == ground.type_)
+                .filter(|(_, card)| card.type_ == self.ground.type_)
                 .min_by_key(|(_, card)| card.ord),
-            Hokm::Saras => ground
+            Hokm::Saras => self
+                .ground
                 .cards
                 .iter()
-                .filter(|(_, card)| card.type_ == ground.type_)
+                .filter(|(_, card)| card.type_ == self.ground.type_)
                 .max_by_key(|(_, card)| card.ord),
-            Hokm::TakNaras => ground
+            Hokm::TakNaras => self
+                .ground
                 .cards
                 .iter()
-                .filter(|(_, card)| card.type_ == ground.type_)
+                .filter(|(_, card)| card.type_ == self.ground.type_)
                 .min_by(|(_, card1), (_, card2)| {
                     if card1.ord == 12 {
                         std::cmp::Ordering::Less
@@ -261,17 +265,19 @@ impl Game {
                     }
                 }),
             _ => {
-                let hokm_winner: Option<&(PlayerId, Card)> = ground
+                let hokm_winner: Option<&(PlayerId, Card)> = self
+                    .ground
                     .cards
                     .iter()
                     .filter(|(_, card)| card.type_ == self.hokm)
                     .max_by_key(|(_, card)| card.ord);
                 match hokm_winner {
                     Some(_) => hokm_winner,
-                    None => ground
+                    None => self
+                        .ground
                         .cards
                         .iter()
-                        .filter(|(_, card)| card.type_ == ground.type_)
+                        .filter(|(_, card)| card.type_ == self.ground.type_)
                         .max_by_key(|(_, card)| card.ord),
                 }
             }
@@ -281,11 +287,12 @@ impl Game {
             .ok_or(Error::NoValidCard)
     }
 
-    fn collect_hand(&mut self, player_to_collect_id: PlayerId, ground: Ground) -> Result<()> {
+    fn collect_hand(&mut self, player_to_collect_id: PlayerId) -> Result<()> {
         let team_to_collect_id: TeamId = get_player!(self.players, player_to_collect_id).team_id;
+        let ground_cards: Vec<Card> = self.ground.cards.drain(..).map(|(_, card)| card).collect();
         get_team_mut!(self.teams, team_to_collect_id)
             .collected_hands
-            .push(ground.cards.into_iter().map(|(_, card)| card).collect());
+            .push(ground_cards);
         Ok(())
     }
 
@@ -430,8 +437,8 @@ impl Game {
             .collect()
     }
 
-    async fn play_card(&mut self, ground: &mut Ground, player_id: PlayerId) -> Result<()> {
-        let is_round_starter: bool = ground.cards.is_empty();
+    async fn play_card(&mut self, player_id: PlayerId) -> Result<()> {
+        let is_round_starter: bool = self.ground.cards.is_empty();
         let mut message: GameMessage = GameMessage::demand(DemandMessage::PlayCard);
         loop {
             if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
@@ -446,16 +453,17 @@ impl Game {
                     let has_matching_card: bool = get_player!(self.players, player_id)
                         .hand
                         .iter()
-                        .any(|player_card: &Card| player_card.type_ == ground.type_);
-                    if has_matching_card && player_choice.type_ != ground.type_ {
-                        message.set_demand_error(format!("You have {}!\n", ground.type_.name()));
+                        .any(|player_card: &Card| player_card.type_ == self.ground.type_);
+                    if has_matching_card && player_choice.type_ != self.ground.type_ {
+                        message
+                            .set_demand_error(format!("You have {}!\n", self.ground.type_.name()));
                         continue;
                     }
                 }
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 player.remove_card(&player_choice).ok();
                 let card_code: String = player_choice.code();
-                ground.add_card(player_id, player_choice)?;
+                self.ground.add_card(player_id, player_choice)?;
                 return player
                     .send_message(&GameMessage::RemoveCard { card: card_code })
                     .await;
@@ -496,19 +504,18 @@ impl Game {
                     .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
                     .map(|(index, _)| index)
                     .ok_or(Error::player_not_found(round_starter_id))?;
-                let mut ground: Ground = Ground::new();
-                self.play_card(&mut ground, round_starter_id).await?;
+                self.play_card(round_starter_id).await?;
                 for index in 1..NUMBER_OF_PLAYERS {
                     self.broadcast_message(BroadcastMessage::GroundCards {
-                        ground_cards: self.get_ground_cards(&ground)?,
+                        ground_cards: self.get_ground_cards()?,
                     })
                     .await?;
                     let player_to_play_id: PlayerId =
                         self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
-                    self.play_card(&mut ground, player_to_play_id).await?;
+                    self.play_card(player_to_play_id).await?;
                 }
-                round_starter_id = self.get_hand_collector_id(&ground)?;
-                self.collect_hand(round_starter_id, ground)?;
+                round_starter_id = self.get_hand_collector_id()?;
+                self.collect_hand(round_starter_id)?;
             }
             self.finish_round(off_team_id, def_team_id, highest_bet)
                 .await?;

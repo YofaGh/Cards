@@ -174,6 +174,12 @@ impl Ground {
     }
 }
 
+impl Default for Ground {
+    fn default() -> Self {
+        Ground::new()
+    }
+}
+
 pub trait GetOrError<K, V> {
     fn get_or_error(&self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&V>;
     fn get_mut_or_error(&mut self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&mut V>;
