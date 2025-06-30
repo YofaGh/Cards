@@ -150,33 +150,9 @@ impl GameMessage {
             error,
         }
     }
-    pub fn bet() -> Self {
+    pub fn demand(demand: DemandMessage) -> Self {
         GameMessage::Demand {
-            demand: DemandMessage::Bet,
-            error: String::new(),
-        }
-    }
-    pub fn fold() -> Self {
-        GameMessage::Demand {
-            demand: DemandMessage::Fold,
-            error: String::new(),
-        }
-    }
-    pub fn username() -> Self {
-        GameMessage::Demand {
-            demand: DemandMessage::Username,
-            error: String::new(),
-        }
-    }
-    pub fn hokm() -> Self {
-        GameMessage::Demand {
-            demand: DemandMessage::Hokm,
-            error: String::new(),
-        }
-    }
-    pub fn play_card() -> Self {
-        GameMessage::Demand {
-            demand: DemandMessage::PlayCard,
+            demand,
             error: String::new(),
         }
     }

@@ -125,7 +125,7 @@ pub async fn handshake(connection: &mut Stream) -> Result<()> {
 
 pub async fn handle_client(connection: &mut Stream) -> Result<String> {
     handshake(connection).await?;
-    let mut message: GameMessage = GameMessage::username();
+    let mut message: GameMessage = GameMessage::demand(DemandMessage::Username);
     loop {
         send_message(connection, &message).await?;
         match receive_message(connection).await? {

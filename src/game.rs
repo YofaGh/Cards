@@ -191,7 +191,7 @@ impl Game {
     async fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
         let team_id: TeamId = get_player!(self.players, player_id).team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
-        let mut message: GameMessage = GameMessage::fold();
+        let mut message: GameMessage = GameMessage::demand(DemandMessage::Fold);
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id);
             if player.hand.len() <= 12 {
@@ -217,7 +217,7 @@ impl Game {
     async fn set_hokm(&mut self, player_id: PlayerId, bet: usize) -> Result<()> {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let player: &mut Player = get_player_mut!(self.players, player_id);
-        let mut message: GameMessage = GameMessage::hokm();
+        let mut message: GameMessage = GameMessage::demand(DemandMessage::Hokm);
         loop {
             if let PlayerChoice::HokmChoice(player_choice) =
                 get_player_choice(player, &mut message, false, hokms.len() - 1).await?
@@ -228,12 +228,10 @@ impl Game {
                         hokm: self.hokm.code(),
                     })
                     .await?;
-                } else {
-                    message.set_demand_error(INVALID_RESPONSE.to_owned());
-                    continue;
+                    return Ok(());
                 }
+                message.set_demand_error(INVALID_RESPONSE.to_owned());
             }
-            return Ok(());
         }
     }
 
@@ -300,7 +298,7 @@ impl Game {
         let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
         loop {
             for player_id in self.field.clone().into_iter() {
-                let mut message: GameMessage = GameMessage::bet();
+                let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_choice: PlayerChoice =
                     get_player_choice(player, &mut message, true, HIGHEST_BET).await?;
@@ -434,7 +432,7 @@ impl Game {
 
     async fn play_card(&mut self, ground: &mut Ground, player_id: PlayerId) -> Result<()> {
         let is_round_starter: bool = ground.cards.is_empty();
-        let mut message: GameMessage = GameMessage::play_card();
+        let mut message: GameMessage = GameMessage::demand(DemandMessage::PlayCard);
         loop {
             if let PlayerChoice::CardChoice(player_choice) = get_player_choice(
                 get_player_mut!(self.players, player_id),
