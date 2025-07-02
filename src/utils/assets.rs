@@ -129,16 +129,16 @@ pub async fn handle_client(connection: &mut Stream) -> Result<String> {
     loop {
         send_message(connection, &message).await?;
         match receive_message(connection).await? {
-            GameMessage::UsernameResponse { username } => {
-                if !username.is_empty() {
-                    return Ok(username);
+            GameMessage::PlayerChoice { choice } => {
+                if !choice.is_empty() {
+                    return Ok(choice);
                 }
                 message.set_demand_error("Username can not be empty!".to_owned());
             }
             invalid => {
                 close_connection(connection).await?;
                 return Err(Error::InvalidResponse(
-                    "UsernameResponse".to_string(),
+                    "PlayerChoice".to_string(),
                     invalid.message_type(),
                 ));
             }

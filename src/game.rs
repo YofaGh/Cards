@@ -1,3 +1,5 @@
+use futures::future::join_all;
+
 use crate::{
     constants::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
     utils::shuffler::*,
@@ -78,12 +80,15 @@ impl Game {
             send_message(&mut connection, &message).await?;
             let response: GameMessage = receive_message(&mut connection).await?;
             match response {
-                GameMessage::TeamChoiceResponse { team_index } => {
-                    if team_index < available_teams.len() {
-                        self.add_player(name, available_teams[team_index].0, connection)?;
+                GameMessage::PlayerChoice { choice } => {
+                    let team_option: Option<&(TeamId, String)> = available_teams
+                        .iter()
+                        .find(|(_, team_name)| *team_name == choice);
+                    if let Some((team_id, _)) = team_option {
+                        self.add_player(name, *team_id, connection)?;
                         return Ok(());
                     } else {
-                        error = format!("Choice can't be greater than {}", available_teams.len())
+                        error = INVALID_RESPONSE.to_owned()
                     }
                 }
                 _ => error = INVALID_RESPONSE.to_owned(),
@@ -131,13 +136,15 @@ impl Game {
     }
 
     pub async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
-        for player in self.players.values_mut() {
-            player
-                .send_message(&GameMessage::Broadcast {
-                    message: message.clone(),
-                })
-                .await?;
-        }
+        let game_message: GameMessage = GameMessage::Broadcast { message };
+        let send_futures: Vec<_> = self
+            .players
+            .values_mut()
+            .map(|player: &mut Player| async {
+                player.send_message(&game_message).await.ok();
+            })
+            .collect();
+        join_all(send_futures).await;
         Ok(())
     }
 

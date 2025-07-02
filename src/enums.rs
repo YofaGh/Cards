@@ -98,12 +98,6 @@ pub enum GameMessage {
         demand: DemandMessage,
         error: String,
     },
-    UsernameResponse {
-        username: String,
-    },
-    TeamChoiceResponse {
-        team_index: usize,
-    },
     Cards {
         player_cards: Vec<String>,
     },
@@ -125,8 +119,6 @@ impl GameMessage {
             GameMessage::HandshakeResponse => "HandshakeResponse".to_string(),
             GameMessage::Broadcast { .. } => "Broadcast".to_string(),
             GameMessage::Demand { demand, .. } => demand.message_type(),
-            GameMessage::UsernameResponse { .. } => "UsernameResponse".to_string(),
-            GameMessage::TeamChoiceResponse { .. } => "TeamChoiceResponse".to_string(),
             GameMessage::Cards { .. } => "Cards".to_string(),
             GameMessage::AddGroundCards { .. } => "AddGroundCards".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),

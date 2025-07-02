@@ -134,8 +134,6 @@ class GameMessage(Enum):
     BROADCAST = "Broadcast"
     DEMAND = "Demand"
     USERNAME = "Username"
-    USERNAME_RESPONSE = "UsernameResponse"
-    TEAM_CHOICE_RESPONSE = "TeamChoiceResponse"
     CARDS = "Cards"
     ADD_GROUND_CARDS = "AddGroundCards"
     BET = "Bet"
@@ -315,11 +313,8 @@ def team_choice(message, error):
             ]
         )
     )
-    choice = choose(
-        "Choose a team: ", error, len(available_teams) - 1, False
-    )
-    team_response = {"TeamChoiceResponse": {"team_index": choice}}
-    send_message(team_response)
+    choice = choose("Choose a team:", error, len(available_teams) - 1, False)
+    send_message(create_player_choice(available_teams[choice]))
 
 
 def choose(prompt, server_error, max_value, passable):
@@ -351,8 +346,7 @@ def username(error):
         if username:
             break
         print("Username can not be empty!")
-    username_response = {"UsernameResponse": {"username": username}}
-    send_message(username_response)
+    send_message(create_player_choice(username))
 
 
 def handshake():
@@ -372,9 +366,7 @@ def bet(error):
 def fold(error):
     global player_cards
     print_player_cards(True)
-    choice = choose(
-        "Choose a card to fold: ", error, len(player_cards) - 1, False
-    )
+    choice = choose("Choose a card to fold: ", error, len(player_cards) - 1, False)
     send_message(create_player_choice(player_cards[choice].code()))
 
 
