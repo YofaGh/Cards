@@ -1,12 +1,12 @@
 use rustls::{
     client::{ServerCertVerified, ServerCertVerifier},
-    ClientConfig, ClientConnection, StreamOwned,
+    Certificate, ClientConfig, ClientConnection, Error as RustlsError, RootCertStore, ServerName,
+    StreamOwned,
 };
-use std::net::TcpStream;
-use std::sync::Arc;
 use std::{
-    io::{self, Read, Write},
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    io::{self, Error as IoError, Read, Write},
+    net::TcpStream,
+    sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use crate::{
@@ -26,55 +26,58 @@ struct NoVerifier;
 impl ServerCertVerifier for NoVerifier {
     fn verify_server_cert(
         &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
+        _end_entity: &Certificate,
+        _intermediates: &[Certificate],
+        _server_name: &ServerName,
         _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
         _now: std::time::SystemTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
+    ) -> Result<ServerCertVerified, RustlsError> {
         Ok(ServerCertVerified::assertion())
     }
 }
 
-fn set_cards(new_cards: Vec<Card>) {
-    let mut cards: RwLockWriteGuard<Vec<Card>> = PLAYER_CARDS.write().unwrap();
-    *cards = new_cards;
+fn get_read_lock<'a, T>(rwlock: &'a RwLock<T>) -> Result<RwLockReadGuard<'a, T>> {
+    rwlock
+        .read()
+        .map_err(|err: PoisonError<RwLockReadGuard<T>>| {
+            Error::Other(format!("Failed to get read lock: {err}").to_string())
+        })
 }
 
-fn set_hokm(new_hokm: String) {
-    let mut hokm: RwLockWriteGuard<Hokm> = HOKM.write().unwrap();
-    *hokm = Hokm::from(new_hokm);
+fn get_write_lock<'a, T>(rwlock: &'a RwLock<T>) -> Result<RwLockWriteGuard<'a, T>> {
+    rwlock
+        .write()
+        .map_err(|err: PoisonError<RwLockWriteGuard<T>>| {
+            Error::Other(format!("Failed to get write lock: {err}").to_string())
+        })
 }
 
-fn add_cards(new_cards: Vec<Card>) {
-    let mut cards: RwLockWriteGuard<Vec<Card>> = PLAYER_CARDS.write().unwrap();
-    cards.extend(new_cards);
+fn set_hokm(new_hokm: String) -> Result<()> {
+    *get_write_lock(&HOKM)? = Hokm::from(new_hokm);
+    Ok(())
 }
 
-fn set_ground_cards(new_cards: Vec<(String, String)>) {
-    let mut ground_cards: RwLockWriteGuard<Vec<(String, Card)>> = GROUND_CARDS.write().unwrap();
+fn set_ground_cards(new_cards: Vec<(String, String)>) -> Result<()> {
     let mut cards: Vec<(String, Card)> = vec![];
     for (player_name, card_code) in new_cards {
-        cards.push((player_name, Card::try_from(card_code).unwrap()));
+        cards.push((player_name, Card::try_from(card_code)?));
     }
-    *ground_cards = cards;
+    *get_write_lock(&GROUND_CARDS)? = cards;
+    Ok(())
 }
 
-fn print_ground_cards() {
-    let ground_cards: RwLockReadGuard<Vec<(String, Card)>> = GROUND_CARDS.read().unwrap();
+fn print_ground_cards() -> Result<()> {
+    let ground_cards: Vec<String> = get_read_lock(&GROUND_CARDS)?
+        .iter()
+        .map(|(player_name, card)| format!("{player_name}: {}", card.to_string()))
+        .collect();
     if ground_cards.is_empty() {
-        return;
+        return Ok(());
     }
     println!("Played Cards:");
-    println!(
-        "{}",
-        ground_cards
-            .iter()
-            .map(|(player_name, card)| format!("{player_name}: {}", card.to_string()))
-            .collect::<Vec<String>>()
-            .join(", ")
-    )
+    println!("{}", ground_cards.join(", "));
+    Ok(())
 }
 
 fn send_message(
@@ -117,25 +120,25 @@ fn get_formatted_scores(scores: Vec<(String, usize)>) -> String {
         .join(", ")
 }
 
-fn print_hokm() {
-    let hokm: RwLockReadGuard<Hokm> = HOKM.read().unwrap();
-    println!("Hokm: {hokm}");
+fn print_hokm() -> Result<()> {
+    println!("Hokm: {}", get_read_lock(&HOKM)?);
+    Ok(())
 }
 
-fn set_bet(new_bet: usize) {
-    let mut bet: RwLockWriteGuard<usize> = CUR_BET.write().unwrap();
-    *bet = new_bet;
+fn set_bet(new_bet: usize) -> Result<()> {
+    *get_write_lock(&CUR_BET)? = new_bet;
+    Ok(())
 }
 
-fn handle_broadcast(message: BroadcastMessage) {
+fn handle_broadcast(message: BroadcastMessage) -> Result<()> {
     match message {
         BroadcastMessage::GameStarting => println!("All players connected. Game starting...!"),
         BroadcastMessage::HandingOutCards => println!("Handing out cards..."),
         BroadcastMessage::ShufflingCards => println!("Shuffling cards..."),
         BroadcastMessage::Starter { name } => println!("Starter: {name}"),
         BroadcastMessage::Hokm { hokm } => {
-            set_hokm(hokm);
-            print_hokm();
+            set_hokm(hokm)?;
+            print_hokm()?;
         }
         BroadcastMessage::Bets { bets } => {
             let mut bets_str: Vec<String> = vec![];
@@ -148,29 +151,30 @@ fn handle_broadcast(message: BroadcastMessage) {
                     _ => {}
                 }
             }
-            println!("{}", bets_str.join(", "))
+            println!("{}", bets_str.join(", "));
         }
         BroadcastMessage::BetWinner { bet_winner } => {
-            set_bet(bet_winner.1);
+            set_bet(bet_winner.1)?;
             println!("{} wins with {}", bet_winner.0, bet_winner.1);
         }
         BroadcastMessage::GroundCards { ground_cards } => {
-            set_ground_cards(ground_cards);
-            print_ground_cards();
+            set_ground_cards(ground_cards)?;
+            print_ground_cards()?;
         }
         BroadcastMessage::RoundWinner { round_winner } => {
-            println!("Winner of this round is: {round_winner}")
+            println!("Winner of this round is: {round_winner}");
         }
         BroadcastMessage::GameWinner { game_winner } => {
-            println!("Winner of this round is: {game_winner}")
+            println!("Winner of this round is: {game_winner}");
         }
         BroadcastMessage::GameScore { teams_score } => {
-            println!("Game Score:\n {}", get_formatted_scores(teams_score))
+            println!("Game Score:\n {}", get_formatted_scores(teams_score));
         }
         BroadcastMessage::RoundScore { teams_score } => {
-            println!("Round Score:\n {}", get_formatted_scores(teams_score))
+            println!("Round Score:\n {}", get_formatted_scores(teams_score));
         }
     }
+    Ok(())
 }
 
 fn username(
@@ -183,10 +187,12 @@ fn username(
     loop {
         let mut choice: String = String::new();
         print!("Enter your username: ");
-        io::stdout().flush().unwrap();
-        io::stdin()
-            .read_line(&mut choice)
-            .expect("Failed to read line");
+        io::stdout().flush().map_err(|err: IoError| {
+            Error::Other(format!("Failed to flush io: {err}").to_string())
+        })?;
+        io::stdin().read_line(&mut choice).map_err(|err: IoError| {
+            Error::Other(format!("Failed to read io line: {err}").to_string())
+        })?;
         choice = choice.trim().to_string();
         if !choice.is_empty() {
             return send_message(connection, &GameMessage::PlayerChoice { choice });
@@ -195,28 +201,30 @@ fn username(
     }
 }
 
-fn choose(prompt: String, server_error: String, max_value: usize, passable: bool) -> usize {
+fn choose(prompt: String, server_error: String, max_value: usize, passable: bool) -> Result<usize> {
     if !server_error.is_empty() {
         println!("Server error: {server_error}");
     }
     loop {
         let mut input: String = String::new();
         print!("{prompt} (0-{max_value}): ");
-        io::stdout().flush().unwrap();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read line");
+        io::stdout().flush().map_err(|err: IoError| {
+            Error::Other(format!("Failed to flush io: {err}").to_string())
+        })?;
+        io::stdin().read_line(&mut input).map_err(|err: IoError| {
+            Error::Other(format!("Failed to read io line: {err}").to_string())
+        })?;
         input = input.trim().to_string();
         if input == "pass" {
             if passable {
-                return 0;
+                return Ok(0);
             }
             println!("You can't pass this one!");
             continue;
         }
         if let Ok(choice) = input.parse::<usize>() {
             if choice <= max_value {
-                return choice;
+                return Ok(choice);
             }
             println!("Choice can't be greater than {max_value}");
         } else {
@@ -244,7 +252,7 @@ fn team_choice(
         error,
         available_teams.len() - 1,
         false,
-    );
+    )?;
     send_message(
         connection,
         &GameMessage::PlayerChoice {
@@ -254,8 +262,8 @@ fn team_choice(
 }
 
 fn bet(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>) -> Result<()> {
-    print_player_cards(false);
-    let choice: usize = choose("what is your bet: ".to_string(), error, 13, true);
+    print_player_cards(false)?;
+    let choice: usize = choose("what is your bet: ".to_string(), error, 13, true)?;
     let choice: String = if choice == 0 {
         "pass".to_string()
     } else {
@@ -265,25 +273,25 @@ fn bet(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>)
 }
 
 fn fold(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>) -> Result<()> {
-    print_player_cards(true);
-    let player_cards_len: usize = PLAYER_CARDS.read().unwrap().len();
+    print_player_cards(true)?;
+    let player_cards_len: usize = get_read_lock(&PLAYER_CARDS)?.len();
     let choice: usize = choose(
         "Choose a card to fold: ".to_string(),
         error,
         player_cards_len,
         false,
-    );
+    )?;
     send_message(
         connection,
         &GameMessage::PlayerChoice {
-            choice: PLAYER_CARDS.read().unwrap().get(choice).unwrap().code(),
+            choice: get_read_lock(&PLAYER_CARDS)?.get(choice).unwrap().code(),
         },
     )
 }
 
 fn hokm(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>) -> Result<()> {
-    print_player_cards(false);
-    let hokms: &[Hokm] = if *CUR_BET.read().unwrap() == 13 {
+    print_player_cards(false)?;
+    let hokms: &[Hokm] = if *get_read_lock(&CUR_BET)? == 13 {
         &HOKMS
     } else {
         &TYPES
@@ -297,7 +305,7 @@ fn hokm(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>
             .collect::<Vec<String>>()
             .join(", ")
     );
-    let choice: usize = choose("What is your hokm? ".to_string(), error, hokms.len(), false);
+    let choice: usize = choose("What is your hokm? ".to_string(), error, hokms.len(), false)?;
     send_message(
         connection,
         &GameMessage::PlayerChoice {
@@ -310,20 +318,18 @@ fn play_card(
     error: String,
     connection: &mut StreamOwned<ClientConnection, TcpStream>,
 ) -> Result<()> {
-    print_hokm();
-    print_player_cards(true);
-    print_ground_cards();
-    let player_cards_len: usize = PLAYER_CARDS.read().unwrap().len();
-    let ground_cards: RwLockReadGuard<Vec<(String, Card)>> = GROUND_CARDS.read().unwrap();
+    print_hokm()?;
+    print_player_cards(true)?;
+    print_ground_cards()?;
+    let player_cards_len: usize = get_read_lock(&PLAYER_CARDS)?.len();
+    let ground_cards: RwLockReadGuard<Vec<(String, Card)>> = get_read_lock(&GROUND_CARDS)?;
     let mut prompt: String = "Choose a card to play: ".to_string();
     loop {
-        let choice: usize = choose(prompt.clone(), error.clone(), player_cards_len, false);
+        let choice: usize = choose(prompt.clone(), error.clone(), player_cards_len, false)?;
         if !ground_cards.is_empty() {
             let ground_card_type: &Hokm = &ground_cards.get(0).unwrap().1.type_;
-            let card_type = &PLAYER_CARDS.read().unwrap()[choice].type_;
-            let has_matching_card: bool = PLAYER_CARDS
-                .read()
-                .unwrap()
+            let card_type: &Hokm = &get_read_lock(&PLAYER_CARDS)?[choice].type_;
+            let has_matching_card: bool = get_read_lock(&PLAYER_CARDS)?
                 .iter()
                 .any(|player_card: &Card| player_card.type_ == *ground_card_type);
             if has_matching_card && *card_type != *ground_card_type {
@@ -336,7 +342,7 @@ fn play_card(
         return send_message(
             connection,
             &GameMessage::PlayerChoice {
-                choice: PLAYER_CARDS.read().unwrap().get(choice).unwrap().code(),
+                choice: get_read_lock(&PLAYER_CARDS)?.get(choice).unwrap().code(),
             },
         );
     }
@@ -358,21 +364,19 @@ fn handle_demand(
 }
 
 fn set_player_cards(player_cards: Vec<String>) -> Result<()> {
-    let mut cards: Vec<Card> = vec![];
+    let mut new_cards: Vec<Card> = vec![];
     for player_card in player_cards {
-        cards.push(Card::try_from(player_card).unwrap());
+        new_cards.push(Card::try_from(player_card)?);
     }
-    set_cards(cards);
+    *get_write_lock(&PLAYER_CARDS)? = new_cards;
     Ok(())
 }
 
-fn print_player_cards(indexed: bool) {
+fn print_player_cards(indexed: bool) -> Result<()> {
     println!("These are your cards:");
-    let mut cards: Vec<String> = PLAYER_CARDS
-        .read()
-        .unwrap()
+    let mut cards: Vec<String> = get_read_lock(&PLAYER_CARDS)?
         .iter()
-        .map(|card| card.to_string())
+        .map(|card: &Card| card.to_string())
         .collect();
     if indexed {
         cards = cards
@@ -382,26 +386,24 @@ fn print_player_cards(indexed: bool) {
             .collect();
     }
     println!("{}", cards.join(", "));
-}
-
-fn add_ground_cards(player_cards: Vec<String>) -> Result<()> {
-    let mut cards: Vec<Card> = vec![];
-    for player_card in player_cards {
-        cards.push(Card::try_from(player_card).unwrap());
-    }
-    add_cards(cards);
     Ok(())
 }
 
-fn remove_card(card_to_remove: &Card) {
-    let mut cards = PLAYER_CARDS.write().unwrap();
-    if let Some(pos) = cards.iter().position(|card| card == card_to_remove) {
-        cards.remove(pos);
+fn add_ground_cards(player_cards: Vec<String>) -> Result<()> {
+    let mut new_cards: Vec<Card> = vec![];
+    for player_card in player_cards {
+        new_cards.push(Card::try_from(player_card)?);
     }
+    get_write_lock(&PLAYER_CARDS)?.extend(new_cards);
+    Ok(())
 }
 
 fn remove_player_card(card: String) -> Result<()> {
-    remove_card(&Card::try_from(card)?);
+    let card_to_remove: Card = Card::try_from(card)?;
+    let mut cards: RwLockWriteGuard<Vec<Card>> = get_write_lock(&PLAYER_CARDS)?;
+    if let Some(pos) = cards.iter().position(|card: &Card| *card == card_to_remove) {
+        cards.remove(pos);
+    }
     Ok(())
 }
 
@@ -409,13 +411,13 @@ pub fn run() -> Result<()> {
     init_config()?;
     let mut client_config: ClientConfig = ClientConfig::builder()
         .with_safe_defaults()
-        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_root_certificates(RootCertStore::empty())
         .with_no_client_auth();
     client_config
         .dangerous()
         .set_certificate_verifier(Arc::new(NoVerifier));
     let config: &'static Config = get_config();
-    let server_name: rustls::ServerName = config.server.host.as_str().try_into().unwrap();
+    let server_name: ServerName = config.server.host.as_str().try_into().unwrap();
     let conn: ClientConnection =
         ClientConnection::new(Arc::new(client_config), server_name).unwrap();
     let tcp_stream: TcpStream =
@@ -429,18 +431,18 @@ pub fn run() -> Result<()> {
                     handle_handshake(&mut client_socket)?;
                 }
                 GameMessage::Broadcast { message } => {
-                    handle_broadcast(message);
+                    handle_broadcast(message)?;
                 }
                 GameMessage::Demand { demand, error } => {
                     handle_demand(demand, error, &mut client_socket)?;
                 }
                 GameMessage::Cards { player_cards } => {
                     set_player_cards(player_cards)?;
-                    print_player_cards(false);
+                    print_player_cards(false)?;
                 }
                 GameMessage::AddGroundCards { ground_cards } => {
                     add_ground_cards(ground_cards)?;
-                    print_player_cards(false);
+                    print_player_cards(false)?;
                 }
                 GameMessage::RemoveCard { card } => {
                     remove_player_card(card)?;
