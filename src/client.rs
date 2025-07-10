@@ -70,7 +70,7 @@ fn set_ground_cards(new_cards: Vec<(String, String)>) -> Result<()> {
 fn print_ground_cards() -> Result<()> {
     let ground_cards: Vec<String> = get_read_lock(&GROUND_CARDS)?
         .iter()
-        .map(|(player_name, card)| format!("{player_name}: {}", card.to_string()))
+        .map(|(player_name, card)| format!("{player_name}: {card}"))
         .collect();
     if ground_cards.is_empty() {
         return Ok(());
@@ -327,7 +327,7 @@ fn play_card(
     loop {
         let choice: usize = choose(prompt.clone(), error.clone(), player_cards_len, false)?;
         if !ground_cards.is_empty() {
-            let ground_card_type: &Hokm = &ground_cards.get(0).unwrap().1.type_;
+            let ground_card_type: &Hokm = &ground_cards.first().unwrap().1.type_;
             let card_type: &Hokm = &get_read_lock(&PLAYER_CARDS)?[choice].type_;
             let has_matching_card: bool = get_read_lock(&PLAYER_CARDS)?
                 .iter()
@@ -448,11 +448,11 @@ pub fn run() -> Result<()> {
                     remove_player_card(card)?;
                 }
                 _ => {
-                    println!("Received: {:?}", message);
+                    println!("Received: {message:?}");
                 }
             },
             Err(e) => {
-                eprintln!("Connection error: {}", e);
+                eprintln!("Connection error: {e}");
             }
         }
     }
