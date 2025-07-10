@@ -1,5 +1,5 @@
 use rustls::{
-    client::{ServerCertVerified, ServerCertVerifier},
+    client::{InvalidDnsNameError, ServerCertVerified, ServerCertVerifier},
     Certificate, ClientConfig, ClientConnection, Error as RustlsError, RootCertStore, ServerName,
     StreamOwned,
 };
@@ -41,7 +41,7 @@ fn get_read_lock<'a, T>(rwlock: &'a RwLock<T>) -> Result<RwLockReadGuard<'a, T>>
     rwlock
         .read()
         .map_err(|err: PoisonError<RwLockReadGuard<T>>| {
-            Error::Other(format!("Failed to get read lock: {err}").to_string())
+            Error::Other(format!("Failed to get read lock: {err}"))
         })
 }
 
@@ -49,7 +49,7 @@ fn get_write_lock<'a, T>(rwlock: &'a RwLock<T>) -> Result<RwLockWriteGuard<'a, T
     rwlock
         .write()
         .map_err(|err: PoisonError<RwLockWriteGuard<T>>| {
-            Error::Other(format!("Failed to get write lock: {err}").to_string())
+            Error::Other(format!("Failed to get write lock: {err}"))
         })
 }
 
@@ -187,12 +187,12 @@ fn username(
     loop {
         let mut choice: String = String::new();
         print!("Enter your username: ");
-        io::stdout().flush().map_err(|err: IoError| {
-            Error::Other(format!("Failed to flush io: {err}").to_string())
-        })?;
-        io::stdin().read_line(&mut choice).map_err(|err: IoError| {
-            Error::Other(format!("Failed to read io line: {err}").to_string())
-        })?;
+        io::stdout()
+            .flush()
+            .map_err(|err: IoError| Error::Other(format!("Failed to flush io: {err}")))?;
+        io::stdin()
+            .read_line(&mut choice)
+            .map_err(|err: IoError| Error::Other(format!("Failed to read io line: {err}")))?;
         choice = choice.trim().to_string();
         if !choice.is_empty() {
             return send_message(connection, &GameMessage::PlayerChoice { choice });
@@ -208,12 +208,12 @@ fn choose(prompt: String, server_error: String, max_value: usize, passable: bool
     loop {
         let mut input: String = String::new();
         print!("{prompt} (0-{max_value}): ");
-        io::stdout().flush().map_err(|err: IoError| {
-            Error::Other(format!("Failed to flush io: {err}").to_string())
-        })?;
-        io::stdin().read_line(&mut input).map_err(|err: IoError| {
-            Error::Other(format!("Failed to read io line: {err}").to_string())
-        })?;
+        io::stdout()
+            .flush()
+            .map_err(|err: IoError| Error::Other(format!("Failed to flush io: {err}")))?;
+        io::stdin()
+            .read_line(&mut input)
+            .map_err(|err: IoError| Error::Other(format!("Failed to read io line: {err}")))?;
         input = input.trim().to_string();
         if input == "pass" {
             if passable {
@@ -284,7 +284,7 @@ fn fold(error: String, connection: &mut StreamOwned<ClientConnection, TcpStream>
     send_message(
         connection,
         &GameMessage::PlayerChoice {
-            choice: get_read_lock(&PLAYER_CARDS)?.get(choice).unwrap().code(),
+            choice: get_read_lock(&PLAYER_CARDS)?[choice].code(),
         },
     )
 }
@@ -327,7 +327,7 @@ fn play_card(
     loop {
         let choice: usize = choose(prompt.clone(), error.clone(), player_cards_len, false)?;
         if !ground_cards.is_empty() {
-            let ground_card_type: &Hokm = &ground_cards.first().unwrap().1.type_;
+            let ground_card_type: &Hokm = &ground_cards[0].1.type_;
             let card_type: &Hokm = &get_read_lock(&PLAYER_CARDS)?[choice].type_;
             let has_matching_card: bool = get_read_lock(&PLAYER_CARDS)?
                 .iter()
@@ -342,7 +342,7 @@ fn play_card(
         return send_message(
             connection,
             &GameMessage::PlayerChoice {
-                choice: get_read_lock(&PLAYER_CARDS)?.get(choice).unwrap().code(),
+                choice: get_read_lock(&PLAYER_CARDS)?[choice].code(),
             },
         );
     }
@@ -417,11 +417,20 @@ pub fn run() -> Result<()> {
         .dangerous()
         .set_certificate_verifier(Arc::new(NoVerifier));
     let config: &'static Config = get_config();
-    let server_name: ServerName = config.server.host.as_str().try_into().unwrap();
-    let conn: ClientConnection =
-        ClientConnection::new(Arc::new(client_config), server_name).unwrap();
+    let server_name: ServerName = config
+        .server
+        .host
+        .as_str()
+        .try_into()
+        .map_err(|err: InvalidDnsNameError| Error::Other(format!("Failed to parse host: {err}")))?;
+    let conn: ClientConnection = ClientConnection::new(Arc::new(client_config), server_name)
+        .map_err(|err: RustlsError| {
+            Error::Other(format!("Failed to create connection to server: {err}"))
+        })?;
     let tcp_stream: TcpStream =
-        TcpStream::connect(format!("{}:{}", config.server.host, config.server.port)).unwrap();
+        TcpStream::connect(format!("{}:{}", config.server.host, config.server.port)).map_err(
+            |err: IoError| Error::Other(format!("Failed to connect to the server: {err}")),
+        )?;
     let mut client_socket: StreamOwned<ClientConnection, TcpStream> =
         StreamOwned::new(conn, tcp_stream);
     loop {
