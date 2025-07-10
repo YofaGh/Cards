@@ -5,13 +5,14 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
-use {config::init_config, game::Game, prelude::*};
+use {config::init_config, prelude::*, utils::game_registry::create_game};
 
+mod client;
 mod config;
 mod constants;
 mod enums;
 mod errors;
-mod game;
+mod games;
 mod models;
 mod prelude;
 mod types;
@@ -19,6 +20,10 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "client" {
+        return client::run();
+    }
     #[cfg(all(debug_assertions, feature = "dev-certs"))]
     if !std::path::Path::new("cert.pem").exists() || !std::path::Path::new("key.pem").exists() {
         println!("Certificate files not found. Generating...");
@@ -27,7 +32,7 @@ async fn main() -> Result<()> {
     init_config()?;
     let tls_acceptor: TlsAcceptor = get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
-    let mut game: Game = Game::new();
+    let mut game: BoxGame = create_game("Qafoon")?;
     game.initialize_game()?;
     let (player_tx, mut player_rx) = channel(32);
     spawn(async move {

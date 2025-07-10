@@ -1,3 +1,4 @@
+pub use async_trait::async_trait;
 pub use itertools::Itertools;
 pub use std::collections::BTreeMap;
 

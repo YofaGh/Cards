@@ -204,5 +204,5 @@ fn load_tls_config() -> Result<Arc<ServerConfig>> {
 }
 
 pub fn get_tls_acceptor() -> Result<TlsAcceptor> {
-    Ok(TlsAcceptor::from(load_tls_config()?))
+    load_tls_config().and_then(|config: Arc<ServerConfig>| Ok(TlsAcceptor::from(config)))
 }

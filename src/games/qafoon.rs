@@ -1,8 +1,6 @@
-use futures::future::join_all;
-
 use crate::{
-    constants::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
-    utils::shuffler::*,
+    constants::*, games::game::Game, get_player, get_player_mut, get_team, get_team_mut, models::*,
+    prelude::*, utils::shuffler::*,
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -12,25 +10,25 @@ const TEAM_SIZE: usize = 2;
 const NUMBER_OF_TEAMS: usize = NUMBER_OF_PLAYERS / TEAM_SIZE;
 
 #[derive(Default)]
-pub struct Game {
+pub struct Qafoon {
     teams: BTreeMap<TeamId, Team>,
     players: BTreeMap<PlayerId, Player>,
     field: Vec<PlayerId>,
     cards: Vec<Card>,
     starter: PlayerId,
     hokm: Hokm,
-    shuffler: Shuffler,
     ground: Ground,
     pub started: bool,
     pub finished: bool,
 }
 
-impl Game {
-    pub fn new() -> Self {
-        Game::default()
+#[async_trait]
+impl Game for Qafoon {
+    fn get_players(&mut self) -> Vec<&mut Player> {
+        self.players.values_mut().collect()
     }
 
-    pub fn add_player(&mut self, name: String, team_id: TeamId, connection: Stream) -> Result<()> {
+    fn add_player(&mut self, name: String, team_id: TeamId, connection: Stream) -> Result<()> {
         if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
         }
@@ -40,15 +38,15 @@ impl Game {
         Ok(())
     }
 
-    pub fn get_player_count(&self) -> usize {
+    fn get_player_count(&self) -> usize {
         self.players.len()
     }
 
-    pub fn is_full(&self) -> bool {
+    fn is_full(&self) -> bool {
         self.get_player_count() >= NUMBER_OF_PLAYERS
     }
 
-    pub fn initialize_game(&mut self) -> Result<()> {
+    fn initialize_game(&mut self) -> Result<()> {
         if self.started {
             return Err(Error::Other("Game Already Started".to_owned()));
         }
@@ -57,16 +55,7 @@ impl Game {
         Ok(())
     }
 
-    fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
-        self.teams
-            .values()
-            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
-            .sorted_by_key(ToString::to_string)
-            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
-            .collect()
-    }
-
-    pub async fn handle_user(&mut self, mut connection: Stream, name: String) -> Result<()> {
+    async fn handle_user(&mut self, mut connection: Stream, name: String) -> Result<()> {
         let mut error: String = String::new();
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
@@ -96,20 +85,87 @@ impl Game {
         }
     }
 
-    fn generate_teams(&mut self) -> Result<()> {
-        (0..NUMBER_OF_TEAMS).for_each(|i: usize| {
-            let team: Team = Team::new(format!("Team {}", i + 1));
-            self.teams.insert(team.id, team);
-        });
-        Ok(())
-    }
-
     fn generate_cards(&mut self) -> Result<()> {
         TYPES.iter().for_each(|type_: &Hokm| {
             (0..NUMBERS.len()).for_each(|i: usize| {
                 self.cards
                     .push(Card::new(type_.to_owned(), NUMBERS[i].to_owned(), i))
             })
+        });
+        Ok(())
+    }
+
+    async fn run_game(&mut self) -> Result<()> {
+        self.started = true;
+        self.generate_field()?;
+        shuffle(&mut self.cards, ShuffleMethod::Hard);
+        while self.should_continue_game()? {
+            self.broadcast_message(BroadcastMessage::GameScore {
+                teams_score: self.get_teams_game_score(),
+            })
+            .await?;
+            self.broadcast_message(BroadcastMessage::ShufflingCards)
+                .await?;
+            shuffle(&mut self.cards, ShuffleMethod::Riffle);
+            let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
+            self.hand_out_cards().await?;
+            let (highest_bet, highest_bettor_id, off_team_id) =
+                self.start_betting(ground_cards).await?;
+            self.set_starter(highest_bettor_id, highest_bet).await?;
+            let mut round_starter_id: PlayerId = self.starter;
+            self.fold_first(highest_bettor_id).await?;
+            self.set_hokm(highest_bettor_id, highest_bet).await?;
+            let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
+            while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
+                self.broadcast_message(BroadcastMessage::RoundScore {
+                    teams_score: self.get_teams_round_score(),
+                })
+                .await?;
+                let round_starter_index: usize = self
+                    .field
+                    .iter()
+                    .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
+                    .map(|(index, _)| index)
+                    .ok_or(Error::player_not_found(round_starter_id))?;
+                self.play_card(round_starter_id).await?;
+                for index in 1..NUMBER_OF_PLAYERS {
+                    self.broadcast_message(BroadcastMessage::GroundCards {
+                        ground_cards: self.get_ground_cards()?,
+                    })
+                    .await?;
+                    let player_to_play_id: PlayerId =
+                        self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
+                    self.play_card(player_to_play_id).await?;
+                }
+                round_starter_id = self.get_hand_collector_id()?;
+                self.collect_hand(round_starter_id)?;
+            }
+            self.finish_round(off_team_id, def_team_id, highest_bet)
+                .await?;
+            self.prepare_next_round()?;
+        }
+        self.finish_game().await
+    }
+}
+
+impl Qafoon {
+    pub fn new() -> Self {
+        Qafoon::default()
+    }
+
+    fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
+        self.teams
+            .values()
+            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
+            .collect()
+    }
+
+    fn generate_teams(&mut self) -> Result<()> {
+        (0..NUMBER_OF_TEAMS).for_each(|i: usize| {
+            let team: Team = Team::new(format!("Team {}", i + 1));
+            self.teams.insert(team.id, team);
         });
         Ok(())
     }
@@ -133,19 +189,6 @@ impl Game {
                 ))
             })
             .collect()
-    }
-
-    pub async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
-        let game_message: GameMessage = GameMessage::Broadcast { message };
-        let send_futures: Vec<_> = self
-            .players
-            .values_mut()
-            .map(|player: &mut Player| async {
-                player.send_message(&game_message).await.ok();
-            })
-            .collect();
-        join_all(send_futures).await;
-        Ok(())
     }
 
     async fn hand_out_cards(&mut self) -> Result<()> {
@@ -476,58 +519,5 @@ impl Game {
                     .await;
             }
         }
-    }
-
-    pub async fn run_game(&mut self) -> Result<()> {
-        self.started = true;
-        self.generate_field()?;
-        self.shuffler.shuffle(&mut self.cards, ShuffleMethod::Hard);
-        while self.should_continue_game()? {
-            self.broadcast_message(BroadcastMessage::GameScore {
-                teams_score: self.get_teams_game_score(),
-            })
-            .await?;
-            self.broadcast_message(BroadcastMessage::ShufflingCards)
-                .await?;
-            self.shuffler
-                .shuffle(&mut self.cards, ShuffleMethod::Riffle);
-            let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
-            self.hand_out_cards().await?;
-            let (highest_bet, highest_bettor_id, off_team_id) =
-                self.start_betting(ground_cards).await?;
-            self.set_starter(highest_bettor_id, highest_bet).await?;
-            let mut round_starter_id: PlayerId = self.starter;
-            self.fold_first(highest_bettor_id).await?;
-            self.set_hokm(highest_bettor_id, highest_bet).await?;
-            let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
-            while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
-                self.broadcast_message(BroadcastMessage::RoundScore {
-                    teams_score: self.get_teams_round_score(),
-                })
-                .await?;
-                let round_starter_index: usize = self
-                    .field
-                    .iter()
-                    .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
-                    .map(|(index, _)| index)
-                    .ok_or(Error::player_not_found(round_starter_id))?;
-                self.play_card(round_starter_id).await?;
-                for index in 1..NUMBER_OF_PLAYERS {
-                    self.broadcast_message(BroadcastMessage::GroundCards {
-                        ground_cards: self.get_ground_cards()?,
-                    })
-                    .await?;
-                    let player_to_play_id: PlayerId =
-                        self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
-                    self.play_card(player_to_play_id).await?;
-                }
-                round_starter_id = self.get_hand_collector_id()?;
-                self.collect_hand(round_starter_id)?;
-            }
-            self.finish_round(off_team_id, def_team_id, highest_bet)
-                .await?;
-            self.prepare_next_round()?;
-        }
-        self.finish_game().await
     }
 }

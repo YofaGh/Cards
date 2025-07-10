@@ -1,3 +1,4 @@
 pub mod assets;
-pub mod shuffler;
+pub mod game_registry;
 pub mod macros;
+pub mod shuffler;
