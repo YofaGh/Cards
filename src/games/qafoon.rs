@@ -1,5 +1,5 @@
 use crate::{
-    constants::*, games::game::Game, get_player, get_player_mut, get_team, get_team_mut, models::*,
+    constants::*, games::Game, get_player, get_player_mut, get_team, get_team_mut, models::*,
     prelude::*, utils::shuffler::*,
 };
 
@@ -18,8 +18,7 @@ pub struct Qafoon {
     starter: PlayerId,
     hokm: Hokm,
     ground: Ground,
-    pub started: bool,
-    pub finished: bool,
+    status: GameStatus,
 }
 
 #[async_trait]
@@ -46,8 +45,12 @@ impl Game for Qafoon {
         self.get_player_count() >= NUMBER_OF_PLAYERS
     }
 
+    fn get_status(&self) -> &GameStatus {
+        &self.status
+    }
+
     fn initialize_game(&mut self) -> Result<()> {
-        if self.started {
+        if self.get_status() == &GameStatus::Started {
             return Err(Error::Other("Game Already Started".to_owned()));
         }
         self.generate_teams()?;
@@ -96,7 +99,7 @@ impl Game for Qafoon {
     }
 
     async fn run_game(&mut self) -> Result<()> {
-        self.started = true;
+        self.set_status(GameStatus::Started);
         self.generate_field()?;
         shuffle(&mut self.cards, ShuffleMethod::Hard);
         while self.should_continue_game()? {
@@ -151,6 +154,10 @@ impl Game for Qafoon {
 impl Qafoon {
     pub fn new() -> Self {
         Qafoon::default()
+    }
+
+    fn set_status(&mut self, status: GameStatus) {
+        self.status = status;
     }
 
     fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
@@ -459,7 +466,7 @@ impl Qafoon {
         for player in self.players.values_mut() {
             player.close_connection().await?;
         }
-        self.finished = true;
+        self.set_status(GameStatus::Finished);
         Ok(())
     }
 

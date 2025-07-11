@@ -7,7 +7,8 @@ use crate::{errors::Error, games::Game};
 
 pub type PlayerId = Uuid;
 pub type TeamId = Uuid;
+pub type GameId = Uuid;
 pub type Result<T, E = Error> = StdResult<T, E>;
 pub type Stream = TlsStream<TcpStream>;
-pub type BoxGame = Box<dyn Game>;
+pub type BoxGame = Box<dyn Game + Send>;
 pub type GameFactory = fn() -> BoxGame;

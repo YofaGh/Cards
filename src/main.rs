@@ -1,11 +1,18 @@
 use tokio::{
     net::TcpListener,
     spawn,
-    sync::mpsc::{channel, Sender},
+    sync::{
+        mpsc::{channel, Sender},
+        MutexGuard,
+    },
 };
 use tokio_rustls::TlsAcceptor;
 
-use {config::init_config, prelude::*, utils::game_registry::create_game};
+use {
+    config::init_config,
+    prelude::*,
+    utils::game_registry::{create_tracked_game, get_game_registry},
+};
 
 mod client;
 mod config;
@@ -32,8 +39,6 @@ async fn main() -> Result<()> {
     init_config()?;
     let tls_acceptor: TlsAcceptor = get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
-    let mut game: BoxGame = create_game("Qafoon")?;
-    game.initialize_game()?;
     let (player_tx, mut player_rx) = channel(32);
     spawn(async move {
         loop {
@@ -65,12 +70,37 @@ async fn main() -> Result<()> {
             }
         }
     });
-    while !game.is_full() {
-        if let Some((tls_stream, user)) = player_rx.recv().await {
-            game.handle_user(tls_stream, user).await?;
+
+    loop {
+        println!("Creating new Qafoon game...");
+        let (game_id, game_arc) = create_tracked_game("Qafoon").await?;
+        game_arc.lock().await.initialize_game()?;
+        {
+            let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
+            while !game.is_full() {
+                if let Some((tls_stream, user)) = player_rx.recv().await {
+                    println!("Adding player {} to game {}", user, game_id);
+                    if let Err(e) = game.handle_user(tls_stream, user).await {
+                        eprintln!("Error adding player to game {}: {}", game_id, e);
+                        continue;
+                    }
+                }
+            }
+            println!("Game {} is full, starting...", game_id);
         }
+        spawn(async move {
+            let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
+            if let Err(e) = game.broadcast_message(BroadcastMessage::GameStarting).await {
+                eprintln!("Error broadcasting game start for {}: {}", game_id, e);
+                return;
+            }
+            if let Err(e) = game.run_game().await {
+                eprintln!("Error running game {}: {}", game_id, e);
+            } else {
+                println!("Game {} completed successfully", game_id);
+            }
+            get_game_registry().remove_game(game_id).await.ok();
+        });
+        println!("Game {} started, ready for next game", game_id);
     }
-    game.broadcast_message(BroadcastMessage::GameStarting)
-        .await?;
-    game.run_game().await
 }

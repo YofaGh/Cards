@@ -87,6 +87,14 @@ pub enum PlayerChoice {
     HokmChoice(Hokm),
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub enum GameStatus {
+    #[default]
+    NotStarted,
+    Started,
+    Finished,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum GameMessage {
     Handshake,
