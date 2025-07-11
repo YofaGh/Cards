@@ -12,9 +12,9 @@ futures = "0.3.31"
 itertools = "0.14.0"
 once_cell = "1.21.3"
 rand = "0.9.1"
-rcgen = { version = "0.11", optional = true }  # Add this line
+rcgen = { version = "0.11", optional = true }
 rmp-serde = "1.3.0"
-rustls = { version = "0.21", default-features = false, features = ["dangerous_configuration"]}
+rustls = { version = "0.21", default-features = false }
 rustls-pemfile = "2.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.1", features = ["full"] }

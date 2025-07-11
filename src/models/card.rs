@@ -4,7 +4,7 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
-use crate::{games::NUMBERS, models::Hokm, prelude::*};
+use crate::{games::get_card_ord_by_number, models::Hokm, prelude::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
@@ -27,7 +27,7 @@ impl TryFrom<String> for Card {
 
     fn try_from(value: String) -> Result<Self> {
         if let Some((hokm_code, card_number)) = value.split_once("-") {
-            if let Some(ord) = NUMBERS.iter().position(|&x| x == card_number) {
+            if let Some(ord) = get_card_ord_by_number(card_number) {
                 return Ok(Card::new(
                     Hokm::from(hokm_code.to_string()),
                     card_number.to_string(),

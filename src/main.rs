@@ -15,7 +15,6 @@ use {
     prelude::*,
 };
 
-mod client;
 mod config;
 mod core;
 mod errors;
@@ -27,10 +26,6 @@ mod prelude;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "client" {
-        return client::run();
-    }
     #[cfg(all(debug_assertions, feature = "dev-certs"))]
     if !std::path::Path::new("cert.pem").exists() || !std::path::Path::new("key.pem").exists() {
         println!("Certificate files not found. Generating...");
