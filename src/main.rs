@@ -70,7 +70,6 @@ async fn main() -> Result<()> {
             }
         }
     });
-
     loop {
         println!("Creating new Qafoon game...");
         let (game_id, game_arc) = create_tracked_game("Qafoon").await?;
@@ -79,28 +78,28 @@ async fn main() -> Result<()> {
             let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
             while !game.is_full() {
                 if let Some((tls_stream, user)) = player_rx.recv().await {
-                    println!("Adding player {} to game {}", user, game_id);
+                    println!("Adding player {user} to game {game_id}");
                     if let Err(e) = game.handle_user(tls_stream, user).await {
-                        eprintln!("Error adding player to game {}: {}", game_id, e);
+                        eprintln!("Error adding player to game {game_id}: {e}");
                         continue;
                     }
                 }
             }
-            println!("Game {} is full, starting...", game_id);
+            println!("Game {game_id} is full, starting...");
         }
         spawn(async move {
             let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
             if let Err(e) = game.broadcast_message(BroadcastMessage::GameStarting).await {
-                eprintln!("Error broadcasting game start for {}: {}", game_id, e);
+                eprintln!("Error broadcasting game start for {game_id}: {e}");
                 return;
             }
             if let Err(e) = game.run_game().await {
-                eprintln!("Error running game {}: {}", game_id, e);
+                eprintln!("Error running game {game_id}: {e}");
             } else {
-                println!("Game {} completed successfully", game_id);
+                println!("Game {game_id} completed successfully");
             }
             get_game_registry().remove_game(game_id).await.ok();
         });
-        println!("Game {} started, ready for next game", game_id);
+        println!("Game {game_id} started, ready for next game");
     }
 }

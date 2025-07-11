@@ -40,7 +40,7 @@ impl GameRegistry {
         let factory: &GameFactory = self
             .factories
             .get(name)
-            .ok_or_else(|| Error::Other(format!("Game {} is not supported", name)))?;
+            .ok_or_else(|| Error::Other(format!("Game {name} is not supported")))?;
         let game: Arc<Mutex<BoxGame>> = Arc::new(Mutex::new(factory()));
         let game_id: GameId = GameId::new_v4();
         let active_game: ActiveGame = ActiveGame {
