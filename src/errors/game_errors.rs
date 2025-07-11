@@ -6,7 +6,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::types::{PlayerId, TeamId};
+use crate::core::{PlayerId, TeamId};
 
 #[derive(Debug)]
 pub enum Error {

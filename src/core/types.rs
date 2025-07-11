@@ -3,7 +3,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsStream;
 use uuid::Uuid;
 
-use crate::{errors::Error, games::Game};
+use crate::{core::Game, errors::Error};
 
 pub type PlayerId = Uuid;
 pub type TeamId = Uuid;

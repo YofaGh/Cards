@@ -11,7 +11,7 @@ use std::{
 
 use crate::{
     config::{get_config, init_config, Config},
-    constants::{HOKMS, TYPES},
+    games::{HOKMS, TYPES},
     models::Card,
     prelude::*,
 };

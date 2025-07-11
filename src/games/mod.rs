@@ -1,5 +1,5 @@
-mod qafoon;
-mod game;
+pub mod common;
+pub mod qafoon;
 
-pub use qafoon::Qafoon;
-pub use game::Game;
+pub use common::*;
+pub use qafoon::*;

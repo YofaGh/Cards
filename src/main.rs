@@ -10,20 +10,20 @@ use tokio_rustls::TlsAcceptor;
 
 use {
     config::init_config,
+    core::{create_tracked_game, get_game_registry},
+    network::{get_listener, get_tls_acceptor, handle_client},
     prelude::*,
-    utils::game_registry::{create_tracked_game, get_game_registry},
 };
 
 mod client;
 mod config;
-mod constants;
-mod enums;
+mod core;
 mod errors;
 mod games;
+mod macros;
 mod models;
+mod network;
 mod prelude;
-mod types;
-mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {

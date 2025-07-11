@@ -1,6 +1,10 @@
 use crate::{
-    constants::*, games::Game, get_player, get_player_mut, get_team, get_team_mut, models::*,
-    prelude::*, utils::shuffler::*,
+    core::Game,
+    games::*,
+    get_player, get_player_mut, get_team, get_team_mut,
+    models::*,
+    network::{receive_message, send_message},
+    prelude::*,
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -8,18 +12,6 @@ const TARGET_SCORE: usize = 104;
 const HIGHEST_BET: usize = 13;
 const TEAM_SIZE: usize = 2;
 const NUMBER_OF_TEAMS: usize = NUMBER_OF_PLAYERS / TEAM_SIZE;
-
-#[derive(Default)]
-pub struct Qafoon {
-    teams: BTreeMap<TeamId, Team>,
-    players: BTreeMap<PlayerId, Player>,
-    field: Vec<PlayerId>,
-    cards: Vec<Card>,
-    starter: PlayerId,
-    hokm: Hokm,
-    ground: Ground,
-    status: GameStatus,
-}
 
 #[async_trait]
 impl Game for Qafoon {
