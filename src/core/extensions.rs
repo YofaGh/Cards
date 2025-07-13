@@ -1,4 +1,5 @@
 use std::{fs, path::Path};
+use tokio::time::error::Elapsed;
 
 use crate::prelude::*;
 
@@ -13,6 +14,20 @@ impl<K: Ord, V> GetOrError<K, V> for BTreeMap<K, V> {
     }
     fn get_mut_or_error(&mut self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&mut V> {
         self.get_mut(key).ok_or_else(error_fn)
+    }
+}
+
+pub trait TimeoutExt<T> {
+    fn timeout_context(self, context: impl Into<String>) -> Result<T>;
+}
+
+impl<T> TimeoutExt<T> for Result<Result<T>, Elapsed> {
+    fn timeout_context(self, context: impl Into<String>) -> Result<T> {
+        match self {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(err)) => Err(err),
+            Err(_elapsed) => Err(Error::Timeout(context.into())),
+        }
     }
 }
 

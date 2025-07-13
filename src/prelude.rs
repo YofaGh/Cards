@@ -4,7 +4,7 @@ pub use std::collections::BTreeMap;
 
 pub use crate::{
     config::{get_config, Config},
-    core::{types::*, GetOrError},
+    core::{types::*, GetOrError, TimeoutExt},
     errors::Error,
     models::enums::*,
 };

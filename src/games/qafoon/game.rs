@@ -1,4 +1,4 @@
-use tokio::time::{error::Elapsed, timeout};
+use tokio::time::timeout;
 
 use crate::{
     core::Game, games::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
@@ -462,63 +462,12 @@ impl Qafoon {
     }
 
     async fn assign_player_to_team(&mut self, player_id: PlayerId) -> Result<TeamId> {
-        let config: &'static Config = get_config();
-        loop {
-            let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
-            let mut message: GameMessage = GameMessage::team(
-                available_teams
-                    .iter()
-                    .map(|(_, name)| name.clone())
-                    .collect(),
-                String::new(),
-            );
-            let choice_result: Result<Result<String>, Elapsed> = timeout(
-                config.timeout.player_choice,
-                self.get_player_team_choice(player_id, &mut message),
-            )
-            .await;
-            match choice_result {
-                Ok(Ok(team_name)) => {
-                    if let Some((team_id, _)) =
-                        available_teams.iter().find(|(_, name)| *name == team_name)
-                    {
-                        get_team_mut!(self.teams, *team_id).players.push(player_id);
-                        return Ok(*team_id);
-                    } else {
-                        message.set_demand_error("Invalid team choice".to_owned());
-                    }
-                }
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    let player_name: String = get_player!(self.players, player_id).name.clone();
-                    return Err(Error::Other(format!(
-                        "Player {player_name} took too long to choose team"
-                    )));
-                }
-            }
-        }
-    }
-
-    async fn get_player_team_choice(
-        &mut self,
-        player_id: PlayerId,
-        message: &mut GameMessage,
-    ) -> Result<String> {
-        let player: &mut Player = get_player_mut!(self.players, player_id);
-        loop {
-            player.send_message(message).await?;
-            match player.receive_message().await? {
-                GameMessage::PlayerChoice { choice } => {
-                    return Ok(choice);
-                }
-                invalid => {
-                    message.set_demand_error(format!(
-                        "Expected PlayerChoice, got {}",
-                        invalid.message_type()
-                    ));
-                }
-            }
-        }
+        let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
+        let team_id: TeamId =
+            get_player_team_choice(get_player_mut!(self.players, player_id), available_teams)
+                .await?;
+        get_team_mut!(self.teams, team_id).players.push(player_id);
+        return Ok(team_id);
     }
 
     async fn run_game(&mut self) -> Result<()> {

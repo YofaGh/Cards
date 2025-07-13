@@ -4,6 +4,7 @@ use std::{
     io::Error as IoError,
     num::ParseIntError,
 };
+use tokio::time::error::Elapsed;
 use uuid::Uuid;
 
 use crate::core::{PlayerId, TeamId};
@@ -17,6 +18,7 @@ pub enum Error {
     RmpSerde(String),
     Tls(String),
     FileOperation(String),
+    Timeout(String),
     NoValidCard,
 }
 
@@ -54,6 +56,7 @@ impl Display for Error {
             | Error::Tcp(msg)
             | Error::RmpSerde(msg)
             | Error::Tls(msg)
+            | Error::Timeout(msg)
             | Error::FileOperation(msg) => {
                 write!(f, "{msg}")
             }
@@ -69,5 +72,11 @@ impl Display for Error {
 impl From<ParseIntError> for Error {
     fn from(err: ParseIntError) -> Self {
         Error::Other(err.to_string())
+    }
+}
+
+impl From<Elapsed> for Error {
+    fn from(_: Elapsed) -> Self {
+        Error::Timeout("Operation timed out".to_string())
     }
 }
