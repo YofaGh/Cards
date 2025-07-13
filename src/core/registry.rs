@@ -3,7 +3,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 use tokio::{
     sync::{Mutex, MutexGuard},
@@ -46,7 +46,7 @@ impl Default for GameRegistry {
 impl GameRegistry {
     pub fn new() -> Self {
         let mut factories: HashMap<String, GameFactory> = HashMap::new();
-        factories.insert("Qafoon".to_string(), Self::create_qafoon);
+        factories.insert("Qafoon".to_string(), Qafoon::boxed_new);
         let registry: GameRegistry = Self {
             factories: Arc::new(factories),
             active_games: Arc::new(Mutex::new(HashMap::new())),
@@ -54,10 +54,6 @@ impl GameRegistry {
         };
         registry.start_cleanup_service();
         registry
-    }
-
-    fn create_qafoon() -> BoxGame {
-        Box::new(Qafoon::new())
     }
 
     pub fn get_available_games(&self) -> Vec<String> {
@@ -148,14 +144,15 @@ impl GameRegistry {
     fn start_cleanup_service(&self) {
         let queues: Arc<Mutex<HashMap<String, GameQueue>>> = self.game_queues.clone();
         let active_games: Arc<Mutex<HashMap<GameId, ActiveGame>>> = self.active_games.clone();
+        let config: &'static Config = get_config();
         tokio::spawn(async move {
-            let mut interval: Interval = interval(Duration::from_secs(300));
+            let mut interval: Interval = interval(config.server.queue_clean_up_interval);
             loop {
                 interval.tick().await;
                 {
                     let mut queues_guard: MutexGuard<HashMap<String, GameQueue>> =
                         queues.lock().await;
-                    let cutoff: SystemTime = SystemTime::now() - Duration::from_secs(600);
+                    let cutoff: SystemTime = SystemTime::now() - config.timeout.queue_cutoff;
                     let mut queues_to_remove: Vec<String> = Vec::new();
                     for (game_type, queue) in queues_guard.iter_mut() {
                         if queue.created_at <= cutoff {

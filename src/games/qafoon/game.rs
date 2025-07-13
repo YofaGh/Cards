@@ -1,4 +1,3 @@
-use std::time::Duration;
 use tokio::time::{error::Elapsed, timeout};
 
 use crate::{
@@ -27,10 +26,10 @@ impl Game for Qafoon {
     }
 
     async fn setup_teams(&mut self) -> Result<()> {
-        const TEAM_SELECTION_TIMEOUT: Duration = Duration::from_secs(60);
+        let config: &'static Config = get_config();
         self.broadcast_message(BroadcastMessage::TeamSelectionStarting)
             .await?;
-        timeout(TEAM_SELECTION_TIMEOUT, self.do_team_selection())
+        timeout(config.timeout.team_selection, self.do_team_selection())
             .await
             .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
     }
@@ -76,6 +75,10 @@ impl Game for Qafoon {
 impl Qafoon {
     pub fn new() -> Self {
         Qafoon::default()
+    }
+
+    pub fn boxed_new() -> BoxGame {
+        Box::new(Qafoon::new())
     }
 
     fn set_status(&mut self, status: GameStatus) {
@@ -459,7 +462,7 @@ impl Qafoon {
     }
 
     async fn assign_player_to_team(&mut self, player_id: PlayerId) -> Result<TeamId> {
-        const PLAYER_CHOICE_TIMEOUT: Duration = Duration::from_secs(30);
+        let config: &'static Config = get_config();
         loop {
             let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
             let mut message: GameMessage = GameMessage::team(
@@ -470,7 +473,7 @@ impl Qafoon {
                 String::new(),
             );
             let choice_result: Result<Result<String>, Elapsed> = timeout(
-                PLAYER_CHOICE_TIMEOUT,
+                config.timeout.player_choice,
                 self.get_player_team_choice(player_id, &mut message),
             )
             .await;
