@@ -1,10 +1,8 @@
+use std::time::Duration;
+use tokio::time::{error::Elapsed, timeout};
+
 use crate::{
-    core::Game,
-    games::*,
-    get_player, get_player_mut, get_team, get_team_mut,
-    models::*,
-    network::{receive_message, send_message},
-    prelude::*,
+    core::Game, games::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -19,14 +17,22 @@ impl Game for Qafoon {
         self.players.values_mut().collect()
     }
 
-    fn add_player(&mut self, name: String, team_id: TeamId, connection: Stream) -> Result<()> {
+    fn add_player(&mut self, name: String, connection: Stream) -> Result<()> {
         if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
         }
-        let player: Player = Player::new(name, team_id, connection);
-        get_team_mut!(self.teams, team_id).players.push(player.id);
+        let player: Player = Player::new(name, TeamId::nil(), connection);
         self.players.insert(player.id, player);
         Ok(())
+    }
+
+    async fn setup_teams(&mut self) -> Result<()> {
+        const TEAM_SELECTION_TIMEOUT: Duration = Duration::from_secs(60);
+        self.broadcast_message(BroadcastMessage::TeamSelectionStarting)
+            .await?;
+        timeout(TEAM_SELECTION_TIMEOUT, self.do_team_selection())
+            .await
+            .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
     }
 
     fn get_player_count(&self) -> usize {
@@ -48,36 +54,6 @@ impl Game for Qafoon {
         self.generate_teams()?;
         self.generate_cards()?;
         Ok(())
-    }
-
-    async fn handle_user(&mut self, mut connection: Stream, name: String) -> Result<()> {
-        let mut error: String = String::new();
-        loop {
-            let available_teams: Vec<(TeamId, String)> = self.get_available_team()?;
-            let message: GameMessage = GameMessage::team(
-                available_teams
-                    .iter()
-                    .map(|(_, team_name)| team_name.clone())
-                    .collect(),
-                error.clone(),
-            );
-            send_message(&mut connection, &message).await?;
-            let response: GameMessage = receive_message(&mut connection).await?;
-            match response {
-                GameMessage::PlayerChoice { choice } => {
-                    let team_option: Option<&(TeamId, String)> = available_teams
-                        .iter()
-                        .find(|(_, team_name)| *team_name == choice);
-                    if let Some((team_id, _)) = team_option {
-                        self.add_player(name, *team_id, connection)?;
-                        return Ok(());
-                    } else {
-                        error = INVALID_RESPONSE.to_owned()
-                    }
-                }
-                _ => error = INVALID_RESPONSE.to_owned(),
-            }
-        }
     }
 
     fn generate_cards(&mut self) -> Result<()> {
@@ -106,7 +82,7 @@ impl Qafoon {
         self.status = status;
     }
 
-    fn get_available_team(&self) -> Result<Vec<(TeamId, String)>> {
+    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>> {
         self.teams
             .values()
             .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
@@ -470,6 +446,74 @@ impl Qafoon {
                 return player
                     .send_message(&GameMessage::RemoveCard { card: card_code })
                     .await;
+            }
+        }
+    }
+
+    async fn do_team_selection(&mut self) -> Result<()> {
+        for player_id in self.players.keys().copied().collect::<Vec<PlayerId>>() {
+            let team_id: TeamId = self.assign_player_to_team(player_id).await?;
+            get_player_mut!(self.players, player_id).team_id = team_id;
+        }
+        Ok(())
+    }
+
+    async fn assign_player_to_team(&mut self, player_id: PlayerId) -> Result<TeamId> {
+        const PLAYER_CHOICE_TIMEOUT: Duration = Duration::from_secs(30);
+        loop {
+            let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
+            let mut message: GameMessage = GameMessage::team(
+                available_teams
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect(),
+                String::new(),
+            );
+            let choice_result: Result<Result<String>, Elapsed> = timeout(
+                PLAYER_CHOICE_TIMEOUT,
+                self.get_player_team_choice(player_id, &mut message),
+            )
+            .await;
+            match choice_result {
+                Ok(Ok(team_name)) => {
+                    if let Some((team_id, _)) =
+                        available_teams.iter().find(|(_, name)| *name == team_name)
+                    {
+                        get_team_mut!(self.teams, *team_id).players.push(player_id);
+                        return Ok(*team_id);
+                    } else {
+                        message.set_demand_error("Invalid team choice".to_owned());
+                    }
+                }
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    let player_name: String = get_player!(self.players, player_id).name.clone();
+                    return Err(Error::Other(format!(
+                        "Player {player_name} took too long to choose team"
+                    )));
+                }
+            }
+        }
+    }
+
+    async fn get_player_team_choice(
+        &mut self,
+        player_id: PlayerId,
+        message: &mut GameMessage,
+    ) -> Result<String> {
+        let player: &mut Player = get_player_mut!(self.players, player_id);
+        loop {
+            player.send_message(message).await?;
+            match player.receive_message().await? {
+                GameMessage::PlayerChoice { choice } => {
+                    return Ok(choice);
+                }
+                invalid => {
+                    message.set_demand_error(format!(
+                        "Expected PlayerChoice, got {}",
+                        invalid.message_type()
+                    ));
+                }
             }
         }
     }

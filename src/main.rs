@@ -1,11 +1,4 @@
-use tokio::{
-    net::TcpListener,
-    spawn,
-    sync::{
-        mpsc::{channel, Sender},
-        MutexGuard,
-    },
-};
+use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 use {
@@ -34,77 +27,41 @@ async fn main() -> Result<()> {
     init_config()?;
     let tls_acceptor: TlsAcceptor = get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
-    let (player_tx, mut player_rx) = channel(32);
-    spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    let player_tx: Sender<(Stream, String, String)> = player_tx.clone();
-                    let acceptor: TlsAcceptor = tls_acceptor.clone();
-                    spawn(async move {
-                        let mut tls_stream: Stream = match acceptor.accept(stream).await {
-                            Ok(tls_stream) => Stream::Server(tls_stream),
-                            Err(e) => {
-                                eprintln!("TLS handshake failed for {addr}: {e}");
-                                return;
-                            }
-                        };
-                        match handle_client(&mut tls_stream).await {
-                            Ok((username, game_choice)) => {
-                                if let Err(e) =
-                                    player_tx.send((tls_stream, username, game_choice)).await
-                                {
-                                    eprintln!("Failed to send player to matchmaking: {e}");
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Client handling failed for {addr}: {e}");
-                            }
-                        }
-                    });
-                }
-                Err(e) => eprintln!("Failed to accept connection: {e}"),
-            }
-        }
-    });
     loop {
-        if let Some((tls_stream, username, game_choice)) = player_rx.recv().await {
-            println!("Player {username} wants to play {game_choice}");
-            match get_game_registry().find_or_create_queue(&game_choice).await {
-                Ok(game_arc) => {
-                    let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
-                    if let Err(e) = game.handle_user(tls_stream, username.clone()).await {
-                        eprintln!("Error adding player {username} to {game_choice} queue: {e}");
-                        continue;
-                    }
-                    println!("Player {username} added to {game_choice} queue");
-                    if game.is_full() {
-                        println!("{game_choice} queue is full, promoting to active game");
-                        drop(game);
-                        match get_game_registry()
-                            .promote_queue_to_active(&game_choice)
-                            .await
-                        {
-                            Ok(game_id) => {
-                                println!("Started {game_choice} game with ID: {game_id}");
-                                spawn(async move {
-                                    if let Err(e) = game_arc.lock().await.start().await {
-                                        eprintln!("Error starting the game {game_id}: {e}");
-                                        return;
-                                    }
-                                    get_game_registry().remove_game(game_id).await.ok();
-                                });
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to promote {game_choice} queue to active: {e}");
+        match listener.accept().await {
+            Ok((stream, addr)) => {
+                let acceptor: TlsAcceptor = tls_acceptor.clone();
+                tokio::spawn(async move {
+                    let mut tls_stream: Stream = match acceptor.accept(stream).await {
+                        Ok(tls_stream) => Stream::Server(tls_stream),
+                        Err(err) => {
+                            eprintln!("TLS handshake failed for {addr}: {err}");
+                            return;
+                        }
+                    };
+                    match handle_client(&mut tls_stream).await {
+                        Ok((username, game_choice)) => {
+                            println!("Player {username} wants to play {game_choice}");
+                            if let Err(err) = get_game_registry()
+                                .add_player_to_queue(
+                                    username.clone(),
+                                    game_choice.clone(),
+                                    tls_stream,
+                                )
+                                .await
+                            {
+                                eprintln!(
+                                    "Failed to add player {username} to {game_choice} queue: {err}"
+                                );
                             }
                         }
+                        Err(err) => {
+                            eprintln!("Client handling failed for {addr}: {err}");
+                        }
                     }
-                }
-                Err(e) => {
-                    eprintln!("Failed to find/create queue for {game_choice}: {e}");
-                }
-            };
+                });
+            }
+            Err(err) => eprintln!("Failed to accept connection: {err}"),
         }
     }
 }

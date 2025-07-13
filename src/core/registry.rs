@@ -3,9 +3,12 @@
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::{
+    sync::{Mutex, MutexGuard},
+    time::{interval, Interval},
+};
 
 use crate::{games::*, prelude::*};
 
@@ -21,29 +24,189 @@ pub struct ActiveGame {
     pub game_type: String,
     pub game: Arc<Mutex<BoxGame>>,
     pub created_at: SystemTime,
-    pub player_count: usize,
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub struct GameRegistry {
-    factories: HashMap<String, GameFactory>,
+    factories: Arc<HashMap<String, GameFactory>>,
     active_games: Arc<Mutex<HashMap<GameId, ActiveGame>>>,
     game_queues: Arc<Mutex<HashMap<String, GameQueue>>>,
 }
 
+impl Default for GameRegistry {
+    fn default() -> Self {
+        Self {
+            factories: Arc::new(HashMap::new()),
+            active_games: Arc::new(Mutex::new(HashMap::new())),
+            game_queues: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 impl GameRegistry {
     pub fn new() -> Self {
-        let mut registry: GameRegistry = Self::default();
-        registry.register("Qafoon", || Box::new(Qafoon::new()));
+        let mut factories: HashMap<String, GameFactory> = HashMap::new();
+        factories.insert("Qafoon".to_string(), Self::create_qafoon);
+        let registry: GameRegistry = Self {
+            factories: Arc::new(factories),
+            active_games: Arc::new(Mutex::new(HashMap::new())),
+            game_queues: Arc::new(Mutex::new(HashMap::new())),
+        };
+        registry.start_cleanup_service();
         registry
     }
 
-    pub fn register(&mut self, name: &str, factory: GameFactory) {
-        self.factories.insert(name.to_string(), factory);
+    fn create_qafoon() -> BoxGame {
+        Box::new(Qafoon::new())
     }
 
     pub fn get_available_games(&self) -> Vec<String> {
         self.factories.keys().cloned().collect()
+    }
+
+    pub async fn add_player_to_queue(
+        &self,
+        username: String,
+        game_choice: String,
+        connection: Stream,
+    ) -> Result<()> {
+        let game_arc: Arc<Mutex<BoxGame>> = {
+            let mut queues: MutexGuard<HashMap<String, GameQueue>> = self.game_queues.lock().await;
+            if let Some(existing_queue) = queues.get(&game_choice) {
+                existing_queue.game.clone()
+            } else {
+                let factory: &GameFactory = self
+                    .factories
+                    .get(&game_choice)
+                    .ok_or_else(|| Error::Other(format!("Game {game_choice} is not supported")))?;
+                let game: Arc<Mutex<BoxGame>> = Arc::new(Mutex::new(factory()));
+                let new_queue: GameQueue = GameQueue {
+                    game_type: game_choice.clone(),
+                    game: game.clone(),
+                    created_at: SystemTime::now(),
+                    is_waiting: true,
+                };
+                queues.insert(game_choice.clone(), new_queue);
+                game
+            }
+        };
+
+        let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
+        if game.get_player_count() == 0 {
+            game.initialize_game()?;
+        }
+        game.add_player(username, connection)?;
+        if game.is_full() {
+            drop(game);
+            let mut queues: MutexGuard<HashMap<String, GameQueue>> = self.game_queues.lock().await;
+            if let Some(queue) = queues.get_mut(&game_choice) {
+                queue.is_waiting = false;
+                let game_id: GameId = GameId::new_v4();
+                let active_game: ActiveGame = ActiveGame {
+                    id: game_id,
+                    game_type: game_choice.clone(),
+                    game: game_arc.clone(),
+                    created_at: queue.created_at,
+                };
+                self.active_games.lock().await.insert(game_id, active_game);
+                queues.remove(&game_choice);
+                let registry: GameRegistry = self.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = Self::run_full_game(game_arc, game_id, registry).await {
+                        eprintln!("Game {game_id} failed: {err}");
+                    }
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn run_full_game(
+        game_arc: Arc<Mutex<BoxGame>>,
+        game_id: GameId,
+        registry: GameRegistry,
+    ) -> Result<()> {
+        {
+            let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
+            if let Err(err) = game.setup_teams().await {
+                eprintln!("Team selection failed for game {game_id}: {err}");
+                game.broadcast_message(BroadcastMessage::GameCancelled {
+                    reason: "Team selection failed".to_string(),
+                })
+                .await?;
+                return Err(err);
+            }
+            if let Err(err) = game.start().await {
+                eprintln!("Game {game_id} failed to start: {err}");
+                return Err(err);
+            }
+        }
+        registry.remove_game(game_id).await?;
+        Ok(())
+    }
+
+    fn start_cleanup_service(&self) {
+        let queues: Arc<Mutex<HashMap<String, GameQueue>>> = self.game_queues.clone();
+        let active_games: Arc<Mutex<HashMap<GameId, ActiveGame>>> = self.active_games.clone();
+        tokio::spawn(async move {
+            let mut interval: Interval = interval(Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                {
+                    let mut queues_guard: MutexGuard<HashMap<String, GameQueue>> =
+                        queues.lock().await;
+                    let cutoff: SystemTime = SystemTime::now() - Duration::from_secs(600);
+                    let mut queues_to_remove: Vec<String> = Vec::new();
+                    for (game_type, queue) in queues_guard.iter_mut() {
+                        if queue.created_at <= cutoff {
+                            if let Ok(mut game_guard) = queue.game.try_lock() {
+                                if let Err(err) = game_guard
+                                    .broadcast_message(BroadcastMessage::QueueTimeout)
+                                    .await
+                                {
+                                    eprintln!(
+                                        "Failed to notify players in queue {game_type}: {err}"
+                                    );
+                                }
+                                for player in game_guard.get_players() {
+                                    if let Err(err) = player.close_connection().await {
+                                        eprintln!(
+                                            "Failed to close connection for player {}: {err}",
+                                            player.name
+                                        );
+                                    }
+                                }
+                            }
+                            queues_to_remove.push(game_type.clone());
+                        }
+                    }
+                    for game_type in queues_to_remove {
+                        queues_guard.remove(&game_type);
+                        println!("Cleaned up abandoned queue for {game_type}");
+                    }
+                }
+                {
+                    let mut active_guard: MutexGuard<HashMap<GameId, ActiveGame>> =
+                        active_games.lock().await;
+                    let initial_count: usize = active_guard.len();
+                    active_guard.retain(|game_id: &GameId, active_game: &mut ActiveGame| {
+                        if let Ok(game_guard) = active_game.game.try_lock() {
+                            let should_keep: bool = !game_guard.is_finished();
+                            if !should_keep {
+                                println!("Cleaning up finished game {game_id}");
+                            }
+                            should_keep
+                        } else {
+                            true
+                        }
+                    });
+                    let cleaned: usize = initial_count - active_guard.len();
+                    if cleaned > 0 {
+                        println!("Cleaned up {cleaned} finished games");
+                    }
+                }
+            }
+        });
     }
 
     pub async fn find_or_create_queue(&self, game_type: &str) -> Result<Arc<Mutex<BoxGame>>> {
@@ -80,7 +243,6 @@ impl GameRegistry {
                 game_type: game_type.to_string(),
                 game: queue.game,
                 created_at: queue.created_at,
-                player_count: 0,
             };
             active_games.insert(game_id, active_game);
             Ok(game_id)
@@ -104,12 +266,12 @@ impl GameRegistry {
         Ok(())
     }
 
-    pub async fn list_active_games(&self) -> Vec<(GameId, String, usize)> {
+    pub async fn list_active_games(&self) -> Vec<(GameId, String)> {
         self.active_games
             .lock()
             .await
             .values()
-            .map(|game: &ActiveGame| (game.id, game.game_type.clone(), game.player_count))
+            .map(|game: &ActiveGame| (game.id, game.game_type.clone()))
             .collect()
     }
 
@@ -156,6 +318,6 @@ pub async fn get_active_game(game_id: GameId) -> Option<Arc<Mutex<BoxGame>>> {
     get_game_registry().get_active_game(game_id).await
 }
 
-pub async fn list_all_active_games() -> Vec<(GameId, String, usize)> {
+pub async fn list_all_active_games() -> Vec<(GameId, String)> {
     get_game_registry().list_active_games().await
 }

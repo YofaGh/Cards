@@ -181,6 +181,9 @@ impl DemandMessage {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BroadcastMessage {
     GameStarting,
+    QueueTimeout,
+    TeamSelectionStarting,
+    GameCancelled { reason: String },
     HandingOutCards,
     ShufflingCards,
     Starter { name: String },
