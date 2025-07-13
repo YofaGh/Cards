@@ -11,9 +11,18 @@ pub trait Game: Send + Sync {
     fn get_status(&self) -> &GameStatus;
     fn initialize_game(&mut self) -> Result<()>;
     fn generate_cards(&mut self) -> Result<()>;
-    async fn run_game(&mut self) -> Result<()>;
+    async fn start(&mut self) -> Result<()>;
     async fn handle_user(&mut self, mut _connection: Stream, _name: String) -> Result<()>;
 
+    fn is_finished(&self) -> bool {
+        self.get_status() == &GameStatus::Finished
+    }
+    fn is_started(&self) -> bool {
+        self.get_status() == &GameStatus::Started
+    }
+    fn is_not_started(&self) -> bool {
+        self.get_status() == &GameStatus::NotStarted
+    }
     async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
         let game_message: GameMessage = GameMessage::Broadcast { message };
         let send_futures: Vec<_> = self

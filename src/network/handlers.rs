@@ -2,6 +2,7 @@ use std::io::Error as IoError;
 use tokio::net::TcpListener;
 
 use crate::{
+    core::get_game_registry,
     network::{close_connection, receive_message, send_message},
     prelude::*,
 };
@@ -28,8 +29,7 @@ pub async fn handshake(connection: &mut Stream) -> Result<()> {
     }
 }
 
-pub async fn handle_client(connection: &mut Stream) -> Result<String> {
-    handshake(connection).await?;
+pub async fn get_username(connection: &mut Stream) -> Result<String> {
     let mut message: GameMessage = GameMessage::demand(DemandMessage::Username);
     loop {
         send_message(connection, &message).await?;
@@ -49,4 +49,40 @@ pub async fn handle_client(connection: &mut Stream) -> Result<String> {
             }
         }
     }
+}
+
+pub async fn get_game_choice(connection: &mut Stream) -> Result<String> {
+    let available_games: Vec<String> = get_game_registry().get_available_games();
+    let mut message: GameMessage = GameMessage::demand(DemandMessage::Game {
+        available_games: available_games.clone(),
+    });
+    loop {
+        send_message(connection, &message).await?;
+        match receive_message(connection).await? {
+            GameMessage::PlayerChoice { choice } => {
+                if available_games.contains(&choice) {
+                    return Ok(choice);
+                }
+                message.set_demand_error(format!(
+                    "Invalid game choice '{}'. Available games: {}",
+                    choice,
+                    available_games.join(", ")
+                ));
+            }
+            invalid => {
+                close_connection(connection).await?;
+                return Err(Error::InvalidResponse(
+                    "PlayerChoice".to_string(),
+                    invalid.message_type(),
+                ));
+            }
+        }
+    }
+}
+
+pub async fn handle_client(connection: &mut Stream) -> Result<(String, String)> {
+    handshake(connection).await?;
+    let username: String = get_username(connection).await?;
+    let game_choice: String = get_game_choice(connection).await?;
+    Ok((username, game_choice))
 }

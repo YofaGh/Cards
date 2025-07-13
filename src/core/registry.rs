@@ -9,6 +9,13 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{games::*, prelude::*};
 
+pub struct GameQueue {
+    pub game_type: String,
+    pub game: Arc<Mutex<BoxGame>>,
+    pub created_at: SystemTime,
+    pub is_waiting: bool,
+}
+
 pub struct ActiveGame {
     pub id: GameId,
     pub game_type: String,
@@ -17,17 +24,16 @@ pub struct ActiveGame {
     pub player_count: usize,
 }
 
+#[derive(Default)]
 pub struct GameRegistry {
     factories: HashMap<String, GameFactory>,
     active_games: Arc<Mutex<HashMap<GameId, ActiveGame>>>,
+    game_queues: Arc<Mutex<HashMap<String, GameQueue>>>,
 }
 
 impl GameRegistry {
     pub fn new() -> Self {
-        let mut registry: GameRegistry = Self {
-            factories: HashMap::new(),
-            active_games: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let mut registry: GameRegistry = Self::default();
         registry.register("Qafoon", || Box::new(Qafoon::new()));
         registry
     }
@@ -36,22 +42,53 @@ impl GameRegistry {
         self.factories.insert(name.to_string(), factory);
     }
 
-    pub async fn create_game(&self, name: &str) -> Result<(GameId, Arc<Mutex<BoxGame>>)> {
+    pub fn get_available_games(&self) -> Vec<String> {
+        self.factories.keys().cloned().collect()
+    }
+
+    pub async fn find_or_create_queue(&self, game_type: &str) -> Result<Arc<Mutex<BoxGame>>> {
+        let mut queues: MutexGuard<HashMap<String, GameQueue>> = self.game_queues.lock().await;
+        if let Some(queue) = queues.get(game_type) {
+            if queue.is_waiting {
+                return Ok(queue.game.clone());
+            }
+        }
         let factory: &GameFactory = self
             .factories
-            .get(name)
-            .ok_or_else(|| Error::Other(format!("Game {name} is not supported")))?;
+            .get(game_type)
+            .ok_or_else(|| Error::Other(format!("Game {game_type} is not supported")))?;
         let game: Arc<Mutex<BoxGame>> = Arc::new(Mutex::new(factory()));
-        let game_id: GameId = GameId::new_v4();
-        let active_game: ActiveGame = ActiveGame {
-            id: game_id,
-            game_type: name.to_string(),
+        game.lock().await.initialize_game()?;
+        let queue: GameQueue = GameQueue {
+            game_type: game_type.to_string(),
             game: game.clone(),
             created_at: SystemTime::now(),
-            player_count: 0,
+            is_waiting: true,
         };
-        self.active_games.lock().await.insert(game_id, active_game);
-        Ok((game_id, game))
+        queues.insert(game_type.to_string(), queue);
+        Ok(game)
+    }
+
+    pub async fn promote_queue_to_active(&self, game_type: &str) -> Result<GameId> {
+        let mut queues: MutexGuard<HashMap<String, GameQueue>> = self.game_queues.lock().await;
+        let mut active_games: MutexGuard<HashMap<GameId, ActiveGame>> =
+            self.active_games.lock().await;
+        if let Some(queue) = queues.remove(game_type) {
+            let game_id: GameId = GameId::new_v4();
+            let active_game: ActiveGame = ActiveGame {
+                id: game_id,
+                game_type: game_type.to_string(),
+                game: queue.game,
+                created_at: queue.created_at,
+                player_count: 0,
+            };
+            active_games.insert(game_id, active_game);
+            Ok(game_id)
+        } else {
+            Err(Error::Other(format!(
+                "No queue found for game type: {game_type}"
+            )))
+        }
     }
 
     pub async fn get_active_game(&self, game_id: GameId) -> Option<Arc<Mutex<BoxGame>>> {
@@ -96,7 +133,7 @@ impl GameRegistry {
         let mut to_remove: Vec<GameId> = Vec::new();
         for (id, active_game) in active_games.iter() {
             if let Ok(game_guard) = active_game.game.try_lock() {
-                if game_guard.get_status() == &GameStatus::Finished {
+                if game_guard.is_finished() {
                     to_remove.push(*id);
                 }
             }
@@ -113,10 +150,6 @@ static GAME_REGISTRY: OnceLock<GameRegistry> = OnceLock::new();
 
 pub fn get_game_registry() -> &'static GameRegistry {
     GAME_REGISTRY.get_or_init(GameRegistry::new)
-}
-
-pub async fn create_tracked_game(name: &str) -> Result<(GameId, Arc<Mutex<BoxGame>>)> {
-    get_game_registry().create_game(name).await
 }
 
 pub async fn get_active_game(game_id: GameId) -> Option<Arc<Mutex<BoxGame>>> {

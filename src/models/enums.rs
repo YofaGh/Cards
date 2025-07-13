@@ -156,6 +156,7 @@ impl GameMessage {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DemandMessage {
     Username,
+    Game { available_games: Vec<String> },
     Team { available_teams: Vec<String> },
     Bet,
     Fold,
@@ -167,6 +168,7 @@ impl DemandMessage {
     pub fn message_type(&self) -> String {
         match self {
             DemandMessage::Username => "Username".to_string(),
+            DemandMessage::Game { .. } => "Game".to_string(),
             DemandMessage::Team { .. } => "Team".to_string(),
             DemandMessage::Bet => "Bet".to_string(),
             DemandMessage::Fold => "Fold".to_string(),
