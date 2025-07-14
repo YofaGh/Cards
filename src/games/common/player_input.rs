@@ -71,14 +71,14 @@ pub async fn get_player_team_choice(
     available_teams: Vec<(TeamId, String)>,
 ) -> Result<TeamId> {
     let player_name: String = player.name.clone();
+    let mut message: GameMessage = GameMessage::team(
+        available_teams
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect(),
+        String::new(),
+    );
     let operation = async {
-        let mut message: GameMessage = GameMessage::team(
-            available_teams
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect(),
-            String::new(),
-        );
         loop {
             player.send_message(&message).await?;
             match player.receive_message().await? {
