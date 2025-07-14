@@ -8,19 +8,24 @@ use crate::{core::read_file, prelude::*};
 #[cfg(all(debug_assertions, feature = "dev-certs"))]
 pub fn generate_self_signed_cert_rust() -> Result<()> {
     println!("Generating self-signed certificate with Rust...");
-    let mut params =
-        rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]);
-    let mut distinguished_name = rcgen::DistinguishedName::new();
+    let mut params: rcgen::CertificateParams =
+        rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])
+            .map_err(|e| Error::Tls(format!("Failed to create certificate params: {e}")))?;
+    let mut distinguished_name: rcgen::DistinguishedName = rcgen::DistinguishedName::new();
     distinguished_name.push(rcgen::DnType::CommonName, "localhost");
     distinguished_name.push(rcgen::DnType::OrganizationName, "Game Server");
     distinguished_name.push(rcgen::DnType::CountryName, "IR");
     params.distinguished_name = distinguished_name;
-    let cert: rcgen::Certificate = rcgen::Certificate::from_params(params).unwrap();
-    let pem_serialized: String = cert.serialize_pem().unwrap();
+    let key_pair: rcgen::KeyPair = rcgen::KeyPair::generate()
+        .map_err(|err: rcgen::Error| Error::Tls(format!("Failed to generate key pair: {err}")))?;
+    let cert: rcgen::Certificate = params.self_signed(&key_pair).map_err(|err: rcgen::Error| {
+        Error::Tls(format!("Failed to generate certificate: {err}"))
+    })?;
+    let pem_serialized: String = cert.pem();
     std::fs::write("cert.pem", pem_serialized).map_err(|err: IoError| {
         Error::FileOperation(format!("unable to write file error: {err}"))
     })?;
-    std::fs::write("key.pem", cert.serialize_private_key_pem()).map_err(|err: IoError| {
+    std::fs::write("key.pem", key_pair.serialize_pem()).map_err(|err: IoError| {
         Error::FileOperation(format!("unable to write file error: {err}"))
     })?;
     println!("Certificate generated successfully!");
