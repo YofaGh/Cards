@@ -308,10 +308,11 @@ impl Qafoon {
                 let (name, team_id) = {
                     let highest_bettor: &mut Player =
                         get_player_mut!(self.players, highest_bettor_id);
+                    let ground_card_codes: Vec<String> = code_cards(&ground_cards);
                     highest_bettor.add_cards(ground_cards.clone())?;
                     highest_bettor
                         .send_message(&GameMessage::AddGroundCards {
-                            ground_cards: code_cards(&ground_cards),
+                            ground_cards: ground_card_codes,
                         })
                         .await?;
                     (highest_bettor.name.to_owned(), highest_bettor.team_id)

@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crate::prelude::*;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,19 +42,5 @@ impl std::fmt::Display for Card {
 impl PartialEq for Card {
     fn eq(&self, other: &Self) -> bool {
         self.type_ == other.type_ && self.ord == other.ord
-    }
-}
-
-impl Eq for Card {}
-
-impl PartialOrd for Card {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.ord.cmp(&other.ord))
-    }
-}
-
-impl Ord for Card {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.ord.cmp(&other.ord)
     }
 }

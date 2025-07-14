@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::prelude::{BTreeMap, Error, Result};
 
 pub trait GetOrError<K, V> {
     fn get_or_error(&self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&V>;

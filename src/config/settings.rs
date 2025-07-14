@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 use std::{env, path::PathBuf, time::Duration};
 
-use crate::prelude::*;
+use crate::prelude::{Error, Result};
 
 static CONFIG: OnceCell<Config> = OnceCell::new();
 

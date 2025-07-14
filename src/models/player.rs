@@ -21,12 +21,12 @@ impl Player {
 
     pub fn set_cards(&mut self, cards: Vec<Card>) -> Result<()> {
         self.hand = cards;
-        self.sort_cards()
+        Ok(())
     }
 
     pub fn add_cards(&mut self, mut cards: Vec<Card>) -> Result<()> {
         self.hand.append(&mut cards);
-        self.sort_cards()
+        Ok(())
     }
 
     pub fn remove_card(&mut self, card: &Card) -> Result<Card> {
@@ -35,17 +35,6 @@ impl Player {
         } else {
             Err(Error::NoValidCard)
         }
-    }
-
-    fn sort_cards(&mut self) -> Result<()> {
-        self.hand.sort_by(|a: &Card, b: &Card| {
-            if a.type_.name() == b.type_.name() {
-                a.ord.cmp(&b.ord)
-            } else {
-                a.type_.name().cmp(b.type_.name())
-            }
-        });
-        Ok(())
     }
 
     pub async fn send_message(&mut self, message: &GameMessage) -> Result<()> {
