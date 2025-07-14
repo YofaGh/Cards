@@ -3,6 +3,7 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Error as IoError,
     num::ParseIntError,
+    str::ParseBoolError,
 };
 use tokio::time::error::Elapsed;
 use uuid::Uuid;
@@ -71,6 +72,12 @@ impl Display for Error {
 
 impl From<ParseIntError> for Error {
     fn from(err: ParseIntError) -> Self {
+        Error::Other(err.to_string())
+    }
+}
+
+impl From<ParseBoolError> for Error {
+    fn from(err: ParseBoolError) -> Self {
         Error::Other(err.to_string())
     }
 }

@@ -27,6 +27,7 @@ pub struct TlsConfig {
 
 #[derive(Debug)]
 pub struct TimeoutConfig {
+    pub player_choice_enabled: bool,
     pub team_selection: Duration,
     pub player_choice: Duration,
     pub queue_cutoff: Duration,
@@ -35,6 +36,7 @@ pub struct TimeoutConfig {
 const DEFAULT_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_SERVER_PORT: &str = "0";
 const DEFAULT_TLS_CERTS_PATH: &str = ".";
+const DEFAULT_PLAYER_CHOICE_TIMEOUT_ENABLED: bool = true;
 const DEFAULT_QUEUE_CLEAN_UP_INTERVAL: u64 = 300;
 const DEFAULT_TEAM_SELECTION_TIMEOUT: u64 = 300;
 const DEFAULT_PLAYER_CHOICE_TIMEOUT: u64 = 30;
@@ -61,6 +63,9 @@ impl Config {
                 key: tls_path.join("key.pem"),
             },
             timeout: TimeoutConfig {
+                player_choice_enabled: env::var("PLAYER_CHOICE_TIMEOUT_ENABLED")
+                    .unwrap_or(DEFAULT_PLAYER_CHOICE_TIMEOUT_ENABLED.to_string())
+                    .parse()?,
                 team_selection: get_env_var_as_duration(
                     "TEAM_SELECTION_TIMEOUT",
                     DEFAULT_TEAM_SELECTION_TIMEOUT,
@@ -100,7 +105,7 @@ impl Config {
         if self.timeout.team_selection.is_zero() {
             errors.push("team selection timeout must be greater than 0 seconds".to_string());
         }
-        if self.timeout.player_choice.is_zero() {
+        if self.timeout.player_choice_enabled && self.timeout.player_choice.is_zero() {
             errors.push("player choice timeout must be greater than 0 seconds".to_string());
         }
         if self.timeout.queue_cutoff.is_zero() {

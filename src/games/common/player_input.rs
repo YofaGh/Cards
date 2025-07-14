@@ -12,7 +12,6 @@ pub async fn get_player_choice(
     passable: bool,
     max_value: usize,
 ) -> Result<PlayerChoice> {
-    let config: &'static Config = get_config();
     let player_name: String = player.name.clone();
     let operation = async {
         loop {
@@ -58,16 +57,19 @@ pub async fn get_player_choice(
             }
         }
     };
-    timeout(config.timeout.player_choice, operation)
-        .await
-        .timeout_context(format!("Player {player_name} took too long to make choice"))
+    let config: &'static Config = get_config();
+    if config.timeout.player_choice_enabled {
+        return timeout(config.timeout.player_choice, operation)
+            .await
+            .timeout_context(format!("Player {player_name} took too long to make choice"));
+    }
+    operation.await
 }
 
 pub async fn get_player_team_choice(
     player: &mut Player,
     available_teams: Vec<(TeamId, String)>,
 ) -> Result<TeamId> {
-    let config: &'static Config = get_config();
     let player_name: String = player.name.clone();
     let operation = async {
         let mut message: GameMessage = GameMessage::team(
@@ -98,7 +100,11 @@ pub async fn get_player_team_choice(
             }
         }
     };
-    timeout(config.timeout.player_choice, operation)
-        .await
-        .timeout_context(format!("Player {player_name} took too long to choose team"))
+    let config: &'static Config = get_config();
+    if config.timeout.player_choice_enabled {
+        return timeout(config.timeout.player_choice, operation)
+            .await
+            .timeout_context(format!("Player {player_name} took too long to choose team"));
+    }
+    operation.await
 }

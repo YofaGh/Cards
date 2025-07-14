@@ -467,7 +467,7 @@ impl Qafoon {
             get_player_team_choice(get_player_mut!(self.players, player_id), available_teams)
                 .await?;
         get_team_mut!(self.teams, team_id).players.push(player_id);
-        return Ok(team_id);
+        Ok(team_id)
     }
 
     async fn run_game(&mut self) -> Result<()> {
