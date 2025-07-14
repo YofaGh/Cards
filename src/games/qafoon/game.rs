@@ -1,5 +1,3 @@
-use tokio::time::timeout;
-
 use crate::{
     core::Game, games::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
 };
@@ -26,12 +24,14 @@ impl Game for Qafoon {
     }
 
     async fn setup_teams(&mut self) -> Result<()> {
-        let config: &'static Config = get_config();
         self.broadcast_message(BroadcastMessage::TeamSelectionStarting)
             .await?;
-        timeout(config.timeout.team_selection, self.do_team_selection())
-            .await
-            .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
+        tokio::time::timeout(
+            get_config().timeout.team_selection,
+            self.do_team_selection(),
+        )
+        .await
+        .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
     }
 
     fn get_player_count(&self) -> usize {

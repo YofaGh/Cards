@@ -1,5 +1,3 @@
-use tokio::time::timeout;
-
 use crate::{
     games::INVALID_RESPONSE,
     models::{Card, Player},
@@ -57,13 +55,7 @@ pub async fn get_player_choice(
             }
         }
     };
-    let config: &'static Config = get_config();
-    if config.timeout.player_choice_enabled {
-        return timeout(config.timeout.player_choice, operation)
-            .await
-            .timeout_context(format!("Player {player_name} took too long to make choice"));
-    }
-    operation.await
+    timed_choice(operation, player_name).await
 }
 
 pub async fn get_player_team_choice(
@@ -100,11 +92,18 @@ pub async fn get_player_team_choice(
             }
         }
     };
+    timed_choice(operation, player_name).await
+}
+
+async fn timed_choice<T>(
+    operation: impl std::future::Future<Output = Result<T>>,
+    player_name: String,
+) -> Result<T> {
     let config: &'static Config = get_config();
     if config.timeout.player_choice_enabled {
-        return timeout(config.timeout.player_choice, operation)
+        return tokio::time::timeout(config.timeout.player_choice, operation)
             .await
-            .timeout_context(format!("Player {player_name} took too long to choose team"));
+            .timeout_context(format!("Player {player_name} took too long to make choice"));
     }
     operation.await
 }
