@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         crate::network::generate_self_signed_cert_rust()?;
     }
     config::init_config()?;
+    network::init_crypto_provider();
     let tls_acceptor: TlsAcceptor = network::get_tls_acceptor()?;
     let listener: tokio::net::TcpListener = network::get_listener().await?;
     loop {

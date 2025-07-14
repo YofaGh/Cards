@@ -1,4 +1,5 @@
-use rustls::{Certificate, ServerConfig};
+use rustls::ServerConfig;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::{io::Error as IoError, sync::Arc};
 use tokio_rustls::TlsAcceptor;
 
@@ -26,34 +27,35 @@ pub fn generate_self_signed_cert_rust() -> Result<()> {
     Ok(())
 }
 
+pub fn init_crypto_provider() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install crypto provider");
+}
+
 fn load_tls_config() -> Result<Arc<ServerConfig>> {
     let config: &'static Config = get_config();
     let cert_file: Vec<u8> = read_file(&config.tls.cert)?;
     let key_file: Vec<u8> = read_file(&config.tls.key)?;
-    let cert_chain: Vec<Certificate> = rustls_pemfile::certs(&mut cert_file.as_slice())
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e: IoError| Error::Tls(format!("Failed to parse certificates: {e}")))?
-        .into_iter()
-        .map(|cert| Certificate(cert.to_vec()))
-        .collect();
-    let keys: Vec<Vec<u8>> = rustls_pemfile::pkcs8_private_keys(&mut key_file.as_slice())
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e: IoError| Error::Tls(format!("Failed to parse private keys: {e}")))?
-        .into_iter()
-        .map(|key| key.secret_pkcs8_der().to_vec())
-        .collect();
+    let cert_chain: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_file.as_slice())
+        .collect::<Result<Vec<_>, IoError>>()
+        .map_err(|err: IoError| Error::Tls(format!("Failed to parse certificates: {err}")))?;
+    let keys: Vec<PrivateKeyDer<'static>> =
+        rustls_pemfile::pkcs8_private_keys(&mut key_file.as_slice())
+            .map(|key| key.map(PrivateKeyDer::Pkcs8))
+            .collect::<Result<Vec<_>, IoError>>()
+            .map_err(|err: IoError| Error::Tls(format!("Failed to parse private keys: {err}")))?;
     if keys.is_empty() {
         return Err(Error::Tls("No private keys found".to_string()));
     }
-    let first_key: Vec<u8> = keys
+    let private_key: PrivateKeyDer<'static> = keys
         .into_iter()
         .next()
         .ok_or_else(|| Error::Tls("No private keys available after parsing".to_string()))?;
     let tls_config: ServerConfig = ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, rustls::PrivateKey(first_key))
-        .map_err(|e: rustls::Error| Error::Tls(format!("Failed to build TLS config: {e}")))?;
+        .with_single_cert(cert_chain, private_key)
+        .map_err(|err: rustls::Error| Error::Tls(format!("Failed to build TLS config: {err}")))?;
     Ok(Arc::new(tls_config))
 }
 
