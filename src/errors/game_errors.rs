@@ -1,12 +1,5 @@
-use rmp_serde::{decode::Error as DecodeError, encode::Error as EncodeError};
-use std::{
-    fmt::{Display, Formatter, Result as FmtResult},
-    io::Error as IoError,
-    num::ParseIntError,
-    str::ParseBoolError,
-};
+use std::{io::Error as IoError, num::ParseIntError, str::ParseBoolError};
 use tokio::time::error::Elapsed;
-use uuid::Uuid;
 
 use crate::core::{PlayerId, TeamId};
 
@@ -36,13 +29,13 @@ impl Error {
     pub fn team_not_found(id: TeamId) -> Self {
         Self::id_not_found(id, "team")
     }
-    pub fn id_not_found(id: Uuid, object: &str) -> Self {
+    pub fn id_not_found(id: uuid::Uuid, object: &str) -> Self {
         Self::Other(format!("{object} with ID {id} not found"))
     }
-    pub fn deserialization(err: DecodeError) -> Self {
+    pub fn deserialization(err: rmp_serde::decode::Error) -> Self {
         Self::RmpSerde(format!("Deserialization error: {err}"))
     }
-    pub fn serialization(err: EncodeError) -> Self {
+    pub fn serialization(err: rmp_serde::encode::Error) -> Self {
         Self::RmpSerde(format!("Serialization error: {err}"))
     }
     pub fn read_file(err: IoError) -> Self {
@@ -50,8 +43,8 @@ impl Error {
     }
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::Other(msg)
             | Error::Tcp(msg)

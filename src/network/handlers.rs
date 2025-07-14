@@ -1,18 +1,13 @@
-use std::io::Error as IoError;
 use tokio::net::TcpListener;
 
-use crate::{
-    core::get_game_registry,
-    network::{close_connection, receive_message, send_message},
-    prelude::*,
-};
+use crate::{network::protocol::*, prelude::*};
 
 pub async fn get_listener() -> Result<TcpListener> {
     let config: &'static Config = get_config();
     let address: &str = &format!("{}:{}", config.server.host, config.server.port);
     TcpListener::bind(address)
         .await
-        .map_err(|err: IoError| Error::bind_address(address, err))
+        .map_err(|err: std::io::Error| Error::bind_address(address, err))
 }
 
 pub async fn handshake(connection: &mut Stream) -> Result<()> {
@@ -52,11 +47,11 @@ pub async fn get_username(connection: &mut Stream) -> Result<String> {
 }
 
 pub async fn get_game_choice(connection: &mut Stream) -> Result<String> {
-    let available_games: Vec<String> = get_game_registry().get_available_games();
-    let mut message: GameMessage = GameMessage::demand(DemandMessage::Game {
-        available_games: available_games.clone(),
-    });
     loop {
+        let available_games: Vec<String> = crate::core::get_game_registry().get_available_games();
+        let mut message: GameMessage = GameMessage::demand(DemandMessage::Game {
+            available_games: available_games.clone(),
+        });
         send_message(connection, &message).await?;
         match receive_message(connection).await? {
             GameMessage::PlayerChoice { choice } => {

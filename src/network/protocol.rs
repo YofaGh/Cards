@@ -1,10 +1,9 @@
-use rmp_serde::{from_slice, to_vec};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::prelude::*;
 
 pub async fn send_message(connection: &mut Stream, message: &GameMessage) -> Result<()> {
-    let data: Vec<u8> = to_vec(message).map_err(Error::serialization)?;
+    let data: Vec<u8> = rmp_serde::to_vec(message).map_err(Error::serialization)?;
     let length: u32 = data.len() as u32;
     connection
         .write_all(&length.to_be_bytes())
@@ -29,7 +28,7 @@ pub async fn receive_message(connection: &mut Stream) -> Result<GameMessage> {
         .read_exact(&mut message_buf)
         .await
         .map_err(Error::connection)?;
-    from_slice(&message_buf).map_err(Error::deserialization)
+    rmp_serde::from_slice(&message_buf).map_err(Error::deserialization)
 }
 
 pub async fn close_connection(connection: &mut Stream) -> Result<()> {

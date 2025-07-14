@@ -1,12 +1,6 @@
-use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
-use {
-    config::init_config,
-    core::get_game_registry,
-    network::{get_listener, get_tls_acceptor, handle_client},
-    prelude::*,
-};
+use core::types::*;
 
 mod config;
 mod core;
@@ -22,11 +16,11 @@ async fn main() -> Result<()> {
     #[cfg(all(debug_assertions, feature = "dev-certs"))]
     if !std::path::Path::new("cert.pem").exists() || !std::path::Path::new("key.pem").exists() {
         println!("Certificate files not found. Generating...");
-        generate_self_signed_cert_rust()?;
+        crate::network::generate_self_signed_cert_rust()?;
     }
-    init_config()?;
-    let tls_acceptor: TlsAcceptor = get_tls_acceptor()?;
-    let listener: TcpListener = get_listener().await?;
+    config::init_config()?;
+    let tls_acceptor: TlsAcceptor = network::get_tls_acceptor()?;
+    let listener: tokio::net::TcpListener = network::get_listener().await?;
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
@@ -39,10 +33,10 @@ async fn main() -> Result<()> {
                             return;
                         }
                     };
-                    match handle_client(&mut tls_stream).await {
+                    match network::handle_client(&mut tls_stream).await {
                         Ok((username, game_choice)) => {
                             println!("Player {username} wants to play {game_choice}");
-                            if let Err(err) = get_game_registry()
+                            if let Err(err) = core::get_game_registry()
                                 .add_player_to_queue(
                                     username.clone(),
                                     game_choice.clone(),

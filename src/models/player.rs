@@ -1,8 +1,4 @@
-use crate::{
-    models::Card,
-    network::{close_connection, receive_message, send_message},
-    prelude::*,
-};
+use crate::{models::Card, network::protocol::*, prelude::*};
 
 pub struct Player {
     pub id: PlayerId,

@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, OnceLock},
     time::SystemTime,
 };
-use tokio::{
-    sync::{Mutex, MutexGuard},
-    time::{interval, Interval},
-};
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{games::*, prelude::*};
 
@@ -146,7 +143,8 @@ impl GameRegistry {
         let active_games: Arc<Mutex<HashMap<GameId, ActiveGame>>> = self.active_games.clone();
         let config: &'static Config = get_config();
         tokio::spawn(async move {
-            let mut interval: Interval = interval(config.server.queue_clean_up_interval);
+            let mut interval: tokio::time::Interval =
+                tokio::time::interval(config.server.queue_clean_up_interval);
             loop {
                 interval.tick().await;
                 {

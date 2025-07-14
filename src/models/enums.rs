@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result as FmtResult};
-
-use crate::models::Card;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub enum Hokm {
@@ -73,8 +70,8 @@ impl From<String> for Hokm {
     }
 }
 
-impl Display for Hokm {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+impl std::fmt::Display for Hokm {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{} {}", self.name(), self.unicode_char())
     }
 }
@@ -83,7 +80,7 @@ impl Display for Hokm {
 pub enum PlayerChoice {
     Pass,
     NumberChoice(usize),
-    CardChoice(Card),
+    CardChoice(crate::models::Card),
     HokmChoice(Hokm),
 }
 

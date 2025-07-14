@@ -1,6 +1,4 @@
-#[cfg(all(debug_assertions, feature = "dev-certs"))]
-use rcgen::{CertificateParams, DistinguishedName};
-use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls::{Certificate, ServerConfig};
 use std::{io::Error as IoError, sync::Arc};
 use tokio_rustls::TlsAcceptor;
 
@@ -9,19 +7,19 @@ use crate::{core::read_file, prelude::*};
 #[cfg(all(debug_assertions, feature = "dev-certs"))]
 pub fn generate_self_signed_cert_rust() -> Result<()> {
     println!("Generating self-signed certificate with Rust...");
-    let mut params: CertificateParams =
-        CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]);
-    let mut distinguished_name: DistinguishedName = DistinguishedName::new();
+    let mut params =
+        rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]);
+    let mut distinguished_name = rcgen::DistinguishedName::new();
     distinguished_name.push(rcgen::DnType::CommonName, "localhost");
     distinguished_name.push(rcgen::DnType::OrganizationName, "Game Server");
     distinguished_name.push(rcgen::DnType::CountryName, "IR");
     params.distinguished_name = distinguished_name;
     let cert: rcgen::Certificate = rcgen::Certificate::from_params(params).unwrap();
     let pem_serialized: String = cert.serialize_pem().unwrap();
-    fs::write("cert.pem", pem_serialized).map_err(|err: IoError| {
+    std::fs::write("cert.pem", pem_serialized).map_err(|err: IoError| {
         Error::FileOperation(format!("unable to write file error: {err}"))
     })?;
-    fs::write("key.pem", cert.serialize_private_key_pem()).map_err(|err: IoError| {
+    std::fs::write("key.pem", cert.serialize_private_key_pem()).map_err(|err: IoError| {
         Error::FileOperation(format!("unable to write file error: {err}"))
     })?;
     println!("Certificate generated successfully!");
@@ -54,7 +52,7 @@ fn load_tls_config() -> Result<Arc<ServerConfig>> {
     let tls_config: ServerConfig = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, PrivateKey(first_key))
+        .with_single_cert(cert_chain, rustls::PrivateKey(first_key))
         .map_err(|e: rustls::Error| Error::Tls(format!("Failed to build TLS config: {e}")))?;
     Ok(Arc::new(tls_config))
 }

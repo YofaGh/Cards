@@ -1,6 +1,3 @@
-use std::{fs, path::Path};
-use tokio::time::error::Elapsed;
-
 use crate::prelude::*;
 
 pub trait GetOrError<K, V> {
@@ -21,7 +18,7 @@ pub trait TimeoutExt<T> {
     fn timeout_context(self, context: impl Into<String>) -> Result<T>;
 }
 
-impl<T> TimeoutExt<T> for Result<Result<T>, Elapsed> {
+impl<T> TimeoutExt<T> for Result<Result<T>, tokio::time::error::Elapsed> {
     fn timeout_context(self, context: impl Into<String>) -> Result<T> {
         match self {
             Ok(Ok(value)) => Ok(value),
@@ -31,6 +28,6 @@ impl<T> TimeoutExt<T> for Result<Result<T>, Elapsed> {
     }
 }
 
-pub fn read_file(path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    fs::read(path).map_err(Error::read_file)
+pub fn read_file(path: impl AsRef<std::path::Path>) -> Result<Vec<u8>> {
+    std::fs::read(path).map_err(Error::read_file)
 }

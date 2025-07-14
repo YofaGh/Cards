@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use futures::future::join_all;
-
 use crate::{models::*, prelude::*};
 
 #[async_trait]
@@ -34,7 +32,7 @@ pub trait Game: Send + Sync {
                 player.send_message(&game_message).await.ok();
             })
             .collect();
-        join_all(send_futures).await;
+        futures::future::join_all(send_futures).await;
         Ok(())
     }
 }
