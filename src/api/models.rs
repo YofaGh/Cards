@@ -38,10 +38,28 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
     pub email: String,
     pub username: String,
     pub password: String,
+}
+
+#[derive(Serialize)]
+pub struct AvailableGamesResponse {
+    pub success: bool,
+    pub games: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct JoinGameRequest {
+    pub game_choice: String,
+}
+
+#[derive(Serialize)]
+pub struct JoinGameResponse {
+    pub success: bool,
+    pub game_token: Option<String>,
+    pub game_choice: String,
+    pub message: String,
 }

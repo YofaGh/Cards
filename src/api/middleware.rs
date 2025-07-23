@@ -7,11 +7,7 @@ pub async fn admin_auth_middleware(
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    let auth_header: Option<&str> = request
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|header: &axum::http::HeaderValue| header.to_str().ok())
-        .and_then(|header: &str| header.strip_prefix("Bearer "));
+    let auth_header: Option<&str> = super::handlers::get_token(request.headers());
     let token: &str = match auth_header {
         Some(token) => token,
         _ => return Err(StatusCode::UNAUTHORIZED),
