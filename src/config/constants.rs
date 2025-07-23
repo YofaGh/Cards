@@ -1,0 +1,15 @@
+pub const DEFAULT_GAME_SERVER_HOST: &str = "127.0.0.1";
+pub const DEFAULT_GAME_SERVER_PORT: &str = "0";
+pub const DEFAULT_TLS_CERTS_PATH: &str = ".";
+pub const DEFAULT_PLAYER_CHOICE_TIMEOUT_ENABLED: bool = true;
+pub const DEFAULT_QUEUE_CLEAN_UP_INTERVAL: u64 = 300;
+pub const DEFAULT_TEAM_SELECTION_TIMEOUT: u64 = 300;
+pub const DEFAULT_PLAYER_CHOICE_TIMEOUT: u64 = 30;
+pub const DEFAULT_QUEUE_CUTOFF_TIMEOUT: u64 = 600;
+pub const DEFAULT_DATABASE_URL: &str = "postgresql://localhost:5432/cards_game";
+pub const DEFAULT_DATABASE_MAX_CONNECTIONS: &str = "10";
+pub const DEFAULT_DATABASE_MIN_CONNECTIONS: &str = "2";
+pub const DEFAULT_JWT_SECRET: &str = "abababababababababababababababab";
+pub const DEFAULT_JWT_EXPIRE_DURATION: &str = "24";
+pub const DEFAULT_API_SERVER_HOST: &str = "127.0.0.1";
+pub const DEFAULT_API_SERVER_PORT: &str = "0";

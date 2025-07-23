@@ -1,75 +1,10 @@
 use once_cell::sync::OnceCell;
 use std::{env, path::PathBuf, time::Duration};
 
+use super::{constants::*, models::*};
 use crate::prelude::{Error, Result};
 
 static CONFIG: OnceCell<Config> = OnceCell::new();
-
-#[derive(Debug)]
-pub struct Config {
-    pub game_server: GameServerConfig,
-    pub tls: TlsConfig,
-    pub timeout: TimeoutConfig,
-    pub database: DatabaseConfig,
-    pub jwt: JwtConfig,
-    pub api_server: ApiServerConfig,
-}
-
-#[derive(Debug)]
-pub struct GameServerConfig {
-    pub host: String,
-    pub port: u16,
-    pub queue_clean_up_interval: Duration,
-}
-
-#[derive(Debug)]
-pub struct TlsConfig {
-    pub cert: PathBuf,
-    pub key: PathBuf,
-}
-
-#[derive(Debug)]
-pub struct TimeoutConfig {
-    pub player_choice_enabled: bool,
-    pub team_selection: Duration,
-    pub player_choice: Duration,
-    pub queue_cutoff: Duration,
-}
-
-#[derive(Debug)]
-pub struct DatabaseConfig {
-    pub url: String,
-    pub max_connections: u32,
-    pub min_connections: u32,
-}
-
-#[derive(Debug)]
-pub struct JwtConfig {
-    pub secret: String,
-    pub expire_time: u32,
-}
-
-#[derive(Debug)]
-pub struct ApiServerConfig {
-    pub host: String,
-    pub port: u16,
-}
-
-const DEFAULT_GAME_SERVER_HOST: &str = "127.0.0.1";
-const DEFAULT_GAME_SERVER_PORT: &str = "0";
-const DEFAULT_TLS_CERTS_PATH: &str = ".";
-const DEFAULT_PLAYER_CHOICE_TIMEOUT_ENABLED: bool = true;
-const DEFAULT_QUEUE_CLEAN_UP_INTERVAL: u64 = 300;
-const DEFAULT_TEAM_SELECTION_TIMEOUT: u64 = 300;
-const DEFAULT_PLAYER_CHOICE_TIMEOUT: u64 = 30;
-const DEFAULT_QUEUE_CUTOFF_TIMEOUT: u64 = 600;
-const DEFAULT_DATABASE_URL: &str = "postgresql://localhost:5432/cards_game";
-const DEFAULT_DATABASE_MAX_CONNECTIONS: &str = "10";
-const DEFAULT_DATABASE_MIN_CONNECTIONS: &str = "2";
-const DEFAULT_JWT_SECRET: &str = "abababababababababababababababab";
-const DEFAULT_JWT_EXPIRE_DURATION: &str = "24";
-const DEFAULT_API_SERVER_HOST: &str = "127.0.0.1";
-const DEFAULT_API_SERVER_PORT: &str = "0";
 
 impl Config {
     pub fn from_env() -> Result<Self, Error> {

@@ -1,13 +1,7 @@
 use axum::response::Json;
 use std::time::SystemTime;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct HealthResponse {
-    pub status: String,
-    pub timestamp: String,
-    pub version: String,
-    pub uptime: String,
-}
+use super::models::HealthResponse;
 
 pub async fn health() -> Json<HealthResponse> {
     let start_time: SystemTime = SystemTime::UNIX_EPOCH;

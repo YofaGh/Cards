@@ -1,39 +1,11 @@
 use axum::{extract::State, http::StatusCode, response::Json};
-use serde::{Deserialize, Serialize};
 
+use super::models::{AdminAuthResponse, AuthResponse, ErrorResponse, LoginRequest};
 use crate::{
     auth::{generate_token, TokenPair},
-    database::{Admin, AdminInfo, User, UserInfo},
+    database::{Admin, User},
     prelude::*,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ErrorResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AuthResponse {
-    pub success: bool,
-    pub user: Option<UserInfo>,
-    pub access_token: Option<String>,
-    pub expires_in: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminAuthResponse {
-    pub success: bool,
-    pub admin: Option<AdminInfo>,
-    pub access_token: Option<String>,
-    pub expires_in: Option<i64>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
 
 pub async fn login(
     State(user_repo): State<crate::database::UserRepository>,
