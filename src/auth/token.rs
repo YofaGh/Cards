@@ -11,7 +11,7 @@ pub fn generate_token(
 ) -> Result<TokenPair, JsonWebTokenError> {
     let config: &'static crate::prelude::Config = get_config();
     let now: DateTime<Utc> = Utc::now();
-    let expire_time: chrono::TimeDelta = chrono::Duration::hours(config.jwt.expire_time.into());
+    let expire_time: chrono::TimeDelta = chrono::Duration::seconds(60);
     let expires_at: DateTime<Utc> = now + expire_time;
     let claims: Claims = Claims {
         sub: user_id,

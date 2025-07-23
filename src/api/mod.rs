@@ -22,6 +22,7 @@ fn create_router(user_repo: UserRepository, admin_repo: AdminRepository) -> Rout
     Router::new()
         .route("/health", get(handlers::health))
         .route("/auth/login", post(auth::login))
+        .route("/auth/register", post(auth::register))
         .merge(admin_auth_routes)
         .nest("/admin", admin::create_admin_router(admin_repo))
         .with_state(user_repo)
