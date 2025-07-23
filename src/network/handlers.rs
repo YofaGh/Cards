@@ -53,14 +53,14 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
             if claims.exp < now {
                 return Err(Error::Other("Game session token expired".to_string()));
             }
-            return Ok((claims.username, claims.game_choice));
+            Ok((claims.username, claims.game_choice))
         }
         invalid => {
             close_connection(connection).await?;
-            return Err(Error::InvalidResponse(
+            Err(Error::InvalidResponse(
                 "GameSessionToken".to_string(),
                 invalid.message_type(),
-            ));
+            ))
         }
     }
 }

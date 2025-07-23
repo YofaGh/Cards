@@ -47,7 +47,7 @@ pub async fn get_available_games(
             ));
         }
     };
-    let claims: Claims = match validate_token(&token) {
+    let claims: Claims = match validate_token(token) {
         Ok(claims) => claims,
         Err(_) => {
             return Err((
@@ -107,7 +107,7 @@ pub async fn join_game_queue(
             ));
         }
     };
-    let claims: crate::auth::Claims = match validate_token(&token) {
+    let claims: crate::auth::Claims = match validate_token(token) {
         Ok(claims) => claims,
         Err(_) => {
             return Err((
