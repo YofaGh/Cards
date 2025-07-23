@@ -20,7 +20,20 @@ rustls-pki-types = "1.12.0"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-rustls = { version = "0.26.2", default-features = false }
-uuid = { version = "1.16.0", features = ["v4"] }
+uuid = { version = "1.16.0", features = ["v4", "serde"] }
+chrono = { version = "0.4.41", features = ["serde"] }
+bcrypt = "0.17.0"
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate"
+] }
+axum = "0.8.4"
+serde_json = "1.0.141"
+jsonwebtoken = "9.3.1"
 
 [features]
 default = []

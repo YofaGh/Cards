@@ -144,7 +144,7 @@ impl GameRegistry {
         let config: &'static Config = get_config();
         tokio::spawn(async move {
             let mut interval: tokio::time::Interval =
-                tokio::time::interval(config.server.queue_clean_up_interval);
+                tokio::time::interval(config.game_server.queue_clean_up_interval);
             loop {
                 interval.tick().await;
                 {

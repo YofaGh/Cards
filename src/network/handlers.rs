@@ -4,7 +4,7 @@ use crate::{network::protocol::*, prelude::*};
 
 pub async fn get_listener() -> Result<TcpListener> {
     let config: &'static Config = get_config();
-    let address: &str = &format!("{}:{}", config.server.host, config.server.port);
+    let address: &str = &format!("{}:{}", config.game_server.host, config.game_server.port);
     TcpListener::bind(address)
         .await
         .map_err(|err: std::io::Error| Error::bind_address(address, err))

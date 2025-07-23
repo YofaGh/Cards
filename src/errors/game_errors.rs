@@ -1,7 +1,7 @@
 use std::{io::Error as IoError, num::ParseIntError, str::ParseBoolError};
 use tokio::time::error::Elapsed;
 
-use crate::core::{PlayerId, TeamId};
+use crate::core::{PlayerId, TeamId, UserId};
 
 #[derive(Debug)]
 pub enum Error {
@@ -13,6 +13,7 @@ pub enum Error {
     Tls(String),
     FileOperation(String),
     Timeout(String),
+    UserIdNotFound(UserId),
     NoValidCard,
 }
 
@@ -55,6 +56,9 @@ impl std::fmt::Display for Error {
                 write!(f, "{msg}")
             }
             Error::Config(errors) => write!(f, "{}", errors.join("\n")),
+            Error::UserIdNotFound(user_id) => {
+                write!(f, "No valid user was found with id: {user_id}")
+            }
             Error::InvalidResponse(req, res) => {
                 write!(f, "Expected {res} type from client, got {req} type")
             }
@@ -65,6 +69,12 @@ impl std::fmt::Display for Error {
 
 impl From<ParseIntError> for Error {
     fn from(err: ParseIntError) -> Self {
+        Error::Other(err.to_string())
+    }
+}
+
+impl From<uuid::Error> for Error {
+    fn from(err: uuid::Error) -> Self {
         Error::Other(err.to_string())
     }
 }
