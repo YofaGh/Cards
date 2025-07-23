@@ -6,6 +6,7 @@ use axum::{
 };
 
 use crate::{
+    api::models::CreateUserRequest,
     database::{Admin, User, UserRepository},
     prelude::*,
 };
@@ -18,6 +19,21 @@ pub async fn get_user(
     match user_repo.get_user_by_id(user_id).await {
         Ok(Some(user)) => Ok(Json(user)),
         Ok(None) => Err(StatusCode::NOT_FOUND),
+        _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn create_user(
+    State(user_repo): State<UserRepository>,
+    Extension(_admin_user): Extension<Admin>,
+    Json(payload): Json<CreateUserRequest>,
+) -> Result<Json<User>, StatusCode> {
+    let hashed_password: String = crate::auth::hash_password(&payload.password).unwrap();
+    match user_repo
+        .create_user(&payload.email, &payload.username, &hashed_password)
+        .await
+    {
+        Ok(user) => Ok(Json(user)),
         _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

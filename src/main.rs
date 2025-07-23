@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let user_repository: UserRepository = UserRepository::new(pool.clone());
     let admin_repository: AdminRepository = AdminRepository::new(pool.clone());
     let api_server: JoinHandle<()> =
-        api::init_api_server(user_repository, admin_repository).await?;
+        api::init_api_server(user_repository.clone(), admin_repository).await?;
     network::init_crypto_provider();
     let tls_acceptor: TlsAcceptor = network::get_tls_acceptor()?;
     let listener: tokio::net::TcpListener = network::get_listener().await?;
@@ -38,6 +38,7 @@ async fn main() -> Result<()> {
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     let acceptor: TlsAcceptor = tls_acceptor.clone();
+                    let user_repo: UserRepository = user_repository.clone();
                     tokio::spawn(async move {
                         let mut tls_stream: Stream = match acceptor.accept(stream).await {
                             Ok(tls_stream) => Stream::Server(tls_stream),
@@ -46,7 +47,7 @@ async fn main() -> Result<()> {
                                 return;
                             }
                         };
-                        match network::handle_client(&mut tls_stream).await {
+                        match network::handle_client(&mut tls_stream, user_repo).await {
                             Ok((username, game_choice)) => {
                                 println!("Player {username} wants to play {game_choice}");
                                 if let Err(err) = core::get_game_registry()

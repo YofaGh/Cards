@@ -109,6 +109,9 @@ pub enum GameMessage {
     AddGroundCards {
         ground_cards: Vec<String>,
     },
+    JwtToken {
+        token: String,
+    },
     PlayerChoice {
         choice: String,
     },
@@ -126,6 +129,7 @@ impl GameMessage {
             GameMessage::Demand { demand, .. } => demand.message_type(),
             GameMessage::Cards { .. } => "Cards".to_string(),
             GameMessage::AddGroundCards { .. } => "AddGroundCards".to_string(),
+            GameMessage::JwtToken { .. } => "JwtToken".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
         }
@@ -152,7 +156,7 @@ impl GameMessage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DemandMessage {
-    Username,
+    JwtToken,
     Game { available_games: Vec<String> },
     Team { available_teams: Vec<String> },
     Bet,
@@ -164,7 +168,7 @@ pub enum DemandMessage {
 impl DemandMessage {
     pub fn message_type(&self) -> String {
         match self {
-            DemandMessage::Username => "Username".to_string(),
+            DemandMessage::JwtToken => "JwtToken".to_string(),
             DemandMessage::Game { .. } => "Game".to_string(),
             DemandMessage::Team { .. } => "Team".to_string(),
             DemandMessage::Bet => "Bet".to_string(),

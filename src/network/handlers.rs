@@ -1,6 +1,6 @@
 use tokio::net::TcpListener;
 
-use crate::{network::protocol::*, prelude::*};
+use crate::{database::UserRepository, network::protocol::*, prelude::*};
 
 pub async fn get_listener() -> Result<TcpListener> {
     let config: &'static Config = get_config();
@@ -24,24 +24,33 @@ pub async fn handshake(connection: &mut Stream) -> Result<()> {
     }
 }
 
-pub async fn get_username(connection: &mut Stream) -> Result<String> {
-    let mut message: GameMessage = GameMessage::demand(DemandMessage::Username);
-    loop {
-        send_message(connection, &message).await?;
-        match receive_message(connection).await? {
-            GameMessage::PlayerChoice { choice } => {
-                if !choice.is_empty() {
-                    return Ok(choice);
-                }
-                message.set_demand_error("Username can not be empty!".to_owned());
+pub async fn get_username(connection: &mut Stream, user_repo: UserRepository) -> Result<String> {
+    send_message(connection, &GameMessage::demand(DemandMessage::JwtToken)).await?;
+    match receive_message(connection).await? {
+        GameMessage::JwtToken { token } => {
+            if !token.is_empty() {
+                let claims: crate::auth::Claims = match crate::auth::validate_token(&token) {
+                    Ok(claims) => claims,
+                    _ => return Err(Error::Other("Invalid token".to_string())),
+                };
+                let user_id: UserId = match claims.sub.parse::<UserId>() {
+                    Ok(id) => id,
+                    _ => return Err(Error::Other("Invalid token".to_string())),
+                };
+                let user: crate::database::User = match user_repo.get_user_by_id(user_id).await {
+                    Ok(Some(user)) => user,
+                    _ => return Err(Error::Other("Invalid token".to_string())),
+                };
+                return Ok(user.username);
             }
-            invalid => {
-                close_connection(connection).await?;
-                return Err(Error::InvalidResponse(
-                    "PlayerChoice".to_string(),
-                    invalid.message_type(),
-                ));
-            }
+            return Err(Error::Other("Invalid token".to_string()));
+        }
+        invalid => {
+            close_connection(connection).await?;
+            return Err(Error::InvalidResponse(
+                "JwtToken".to_string(),
+                invalid.message_type(),
+            ));
         }
     }
 }
@@ -75,9 +84,12 @@ pub async fn get_game_choice(connection: &mut Stream) -> Result<String> {
     }
 }
 
-pub async fn handle_client(connection: &mut Stream) -> Result<(String, String)> {
+pub async fn handle_client(
+    connection: &mut Stream,
+    user_repo: UserRepository,
+) -> Result<(String, String)> {
     handshake(connection).await?;
-    let username: String = get_username(connection).await?;
+    let username: String = get_username(connection, user_repo).await?;
     let game_choice: String = get_game_choice(connection).await?;
     Ok((username, game_choice))
 }
