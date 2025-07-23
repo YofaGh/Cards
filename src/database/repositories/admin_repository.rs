@@ -33,7 +33,7 @@ impl AdminRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to create admin: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to create admin: {err}")))?;
         Ok(Admin {
             id: row.id,
             email: row.email,
@@ -55,7 +55,7 @@ impl AdminRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Other(format!("Failed to remove admin: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to remove admin: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(admin_id));
         }
@@ -73,7 +73,7 @@ impl AdminRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to get admin by id: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to get admin by id: {err}")))?;
         Ok(row.map(|row| Admin {
             id: row.id,
             email: row.email,
@@ -99,7 +99,7 @@ impl AdminRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to get admin by id: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to get admin by id: {err}")))?;
         Ok(row.map(|row| Admin {
             id: row.id,
             email: row.email,
@@ -121,7 +121,7 @@ impl AdminRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to check email existence: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to check email existence: {err}")))?;
         Ok(count.count.unwrap_or(0) > 0)
     }
 
@@ -132,8 +132,8 @@ impl AdminRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e: SqlxError| {
-            Error::Other(format!("Failed to check username existence: {}", e))
+        .map_err(|err: SqlxError| {
+            Error::Other(format!("Failed to check username existence: {err}"))
         })?;
         Ok(count.count.unwrap_or(0) > 0)
     }
@@ -146,7 +146,7 @@ impl AdminRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to update password: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to update password: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(admin_id));
         }
@@ -160,7 +160,7 @@ impl AdminRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to verify email: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to verify email: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(admin_id));
         }
@@ -174,7 +174,7 @@ impl AdminRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e: SqlxError| Error::Other(format!("Failed to update last login: {}", e)))?;
+        .map_err(|err: SqlxError| Error::Other(format!("Failed to update last login: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(admin_id));
         }

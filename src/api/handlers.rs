@@ -13,6 +13,6 @@ pub async fn health() -> Json<HealthResponse> {
         status: "healthy".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime: format!("{}s", uptime),
+        uptime: format!("{uptime}s"),
     })
 }
