@@ -11,7 +11,6 @@ pub fn create_admin_router(
     Router::new()
         .route("/users/{id}", get(users::get_user))
         .route("/users/{id}/lock", post(users::lock_user))
-        .route("/users/create", post(users::create_user))
         .route("/users/{id}/unlock", post(users::unlock_user))
         .route("/users/{id}", delete(users::delete_user))
         .route("/health", get(super::handlers::health))
