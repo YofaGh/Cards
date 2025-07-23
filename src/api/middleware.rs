@@ -3,7 +3,7 @@ use axum::{extract::State, http::StatusCode};
 use crate::prelude::*;
 
 pub async fn admin_auth_middleware(
-    State(user_repo): State<crate::database::UserRepository>,
+    State(admin_repo): State<crate::database::AdminRepository>,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
@@ -20,17 +20,20 @@ pub async fn admin_auth_middleware(
         Ok(claims) => claims,
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
-    let user_id: UserId = match claims.sub.parse::<UserId>() {
+    if !claims.is_admin {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let admin_id: AdminId = match claims.sub.parse::<AdminId>() {
         Ok(id) => id,
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
-    let user: crate::database::User = match user_repo.get_user_by_id(user_id).await {
-        Ok(Some(user)) => user,
-        _ => return Err(StatusCode::UNAUTHORIZED),
+    let admin: crate::database::Admin = match admin_repo.get_admin_by_id(admin_id).await {
+        Ok(Some(admin)) => admin,
+        _ => return Err(StatusCode::FORBIDDEN),
     };
-    if !user.is_admin {
+    if !admin.is_active {
         return Err(StatusCode::FORBIDDEN);
     }
-    request.extensions_mut().insert(user);
+    request.extensions_mut().insert(admin);
     Ok(next.run(request).await)
 }

@@ -10,6 +10,7 @@ pub struct TokenPair {
 pub struct Claims {
     pub sub: String,
     pub username: String,
+    pub is_admin: bool,
     pub exp: usize,
     pub iat: usize,
 }

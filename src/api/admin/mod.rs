@@ -5,9 +5,9 @@ use axum::{
     Router,
 };
 
-use crate::database::UserRepository;
-
-pub fn create_admin_router(user_repo: UserRepository) -> Router<UserRepository> {
+pub fn create_admin_router(
+    admin_repo: crate::database::AdminRepository,
+) -> Router<crate::database::UserRepository> {
     Router::new()
         .route("/users/{id}", get(users::get_user))
         .route("/users/{id}/lock", post(users::lock_user))
@@ -15,7 +15,7 @@ pub fn create_admin_router(user_repo: UserRepository) -> Router<UserRepository> 
         .route("/users/{id}", delete(users::delete_user))
         .route("/health", get(super::handlers::health))
         .layer(axum::middleware::from_fn_with_state(
-            user_repo,
+            admin_repo,
             super::middleware::admin_auth_middleware,
         ))
 }

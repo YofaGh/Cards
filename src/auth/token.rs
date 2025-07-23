@@ -4,7 +4,11 @@ use jsonwebtoken::errors::Error as JsonWebTokenError;
 use super::{Claims, TokenPair};
 use crate::config::get_config;
 
-pub fn generate_token(user_id: String, username: String) -> Result<TokenPair, JsonWebTokenError> {
+pub fn generate_token(
+    user_id: String,
+    username: String,
+    is_admin: bool,
+) -> Result<TokenPair, JsonWebTokenError> {
     let config: &'static crate::prelude::Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: chrono::TimeDelta = chrono::Duration::hours(config.jwt.expire_time.into());
@@ -12,6 +16,7 @@ pub fn generate_token(user_id: String, username: String) -> Result<TokenPair, Js
     let claims: Claims = Claims {
         sub: user_id,
         username,
+        is_admin,
         exp: expires_at.timestamp() as usize,
         iat: now.timestamp() as usize,
     };

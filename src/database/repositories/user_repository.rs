@@ -2,7 +2,7 @@
 
 use sqlx::{postgres::PgQueryResult, Error as SqlxError};
 
-use super::models::User;
+use crate::database::User;
 use crate::prelude::*;
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ impl UserRepository {
             r#"
             INSERT INTO users (email, username, password_hash)
             VALUES ($1, $2, $3)
-            RETURNING id, email, password_hash, username, email_verified, is_active, is_locked, is_admin, created_at, updated_at, last_login, games_played, games_won
+            RETURNING id, email, password_hash, username, email_verified, is_active, is_locked, created_at, updated_at, last_login, games_played, games_won
             "#,
             email,
             username,
@@ -42,7 +42,6 @@ impl UserRepository {
             email_verified: row.email_verified,
             is_active: row.is_active,
             is_locked: row.is_locked,
-            is_admin: row.is_admin,
             created_at: row.created_at,
             updated_at: row.updated_at,
             last_login: row.last_login,
@@ -68,7 +67,7 @@ impl UserRepository {
     pub async fn get_user_by_username(&self, username: String) -> Result<Option<User>> {
         let row = sqlx::query!(
             r#"
-            SELECT id, email, password_hash, username, email_verified, is_active, is_locked, is_admin, created_at, updated_at, last_login, games_played, games_won
+            SELECT id, email, password_hash, username, email_verified, is_active, is_locked, created_at, updated_at, last_login, games_played, games_won
             FROM users
             WHERE username = $1 AND is_active = true
             "#,
@@ -85,7 +84,6 @@ impl UserRepository {
             email_verified: row.email_verified,
             is_active: row.is_active,
             is_locked: row.is_locked,
-            is_admin: row.is_admin,
             created_at: row.created_at,
             updated_at: row.updated_at,
             last_login: row.last_login,
@@ -97,7 +95,7 @@ impl UserRepository {
     pub async fn get_user_by_id(&self, user_id: UserId) -> Result<Option<User>> {
         let row = sqlx::query!(
             r#"
-            SELECT id, email, password_hash, username, email_verified, is_active, is_locked, is_admin, created_at, updated_at, last_login, games_played, games_won
+            SELECT id, email, password_hash, username, email_verified, is_active, is_locked, created_at, updated_at, last_login, games_played, games_won
             FROM users
             WHERE id = $1 AND is_active = true
             "#,
@@ -114,7 +112,6 @@ impl UserRepository {
             email_verified: row.email_verified,
             is_active: row.is_active,
             is_locked: row.is_locked,
-            is_admin: row.is_admin,
             created_at: row.created_at,
             updated_at: row.updated_at,
             last_login: row.last_login,
@@ -158,7 +155,7 @@ impl UserRepository {
             UPDATE users 
             SET email = $1, username = $2, updated_at = NOW()
             WHERE id = $3 AND is_active = true AND is_locked = false
-            RETURNING id, email, password_hash, username, email_verified, is_active, is_locked, is_admin, created_at, updated_at, last_login, games_played, games_won
+            RETURNING id, email, password_hash, username, email_verified, is_active, is_locked, created_at, updated_at, last_login, games_played, games_won
             "#,
             email,
             username,
@@ -181,7 +178,6 @@ impl UserRepository {
             email_verified: row.email_verified,
             is_active: row.is_active,
             is_locked: row.is_locked,
-            is_admin: row.is_admin,
             created_at: row.created_at,
             updated_at: row.updated_at,
             last_login: row.last_login,

@@ -2,6 +2,7 @@ use tokio::task::JoinHandle;
 use tokio_rustls::TlsAcceptor;
 
 use core::types::*;
+use database::{AdminRepository, UserRepository};
 
 mod api;
 mod auth;
@@ -25,8 +26,10 @@ async fn main() -> Result<()> {
     config::init_config()?;
     let pool: sqlx::PgPool = database::create_database_pool().await?;
     database::test_database_connection(&pool).await?;
-    let user_repository: database::UserRepository = database::UserRepository::new(pool.clone());
-    let api_server: JoinHandle<()> = api::init_api_server(user_repository).await?;
+    let user_repository: UserRepository = UserRepository::new(pool.clone());
+    let admin_repository: AdminRepository = AdminRepository::new(pool.clone());
+    let api_server: JoinHandle<()> =
+        api::init_api_server(user_repository, admin_repository).await?;
     network::init_crypto_provider();
     let tls_acceptor: TlsAcceptor = network::get_tls_acceptor()?;
     let listener: tokio::net::TcpListener = network::get_listener().await?;

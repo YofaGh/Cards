@@ -2,7 +2,8 @@ use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    database::{User, UserInfo},
+    auth::{generate_token, TokenPair},
+    database::{Admin, AdminInfo, User, UserInfo},
     prelude::*,
 };
 
@@ -16,6 +17,14 @@ pub struct ErrorResponse {
 pub struct AuthResponse {
     pub success: bool,
     pub user: Option<UserInfo>,
+    pub access_token: Option<String>,
+    pub expires_in: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminAuthResponse {
+    pub success: bool,
+    pub admin: Option<AdminInfo>,
     pub access_token: Option<String>,
     pub expires_in: Option<i64>,
 }
@@ -54,23 +63,80 @@ pub async fn login(
             }));
         }
     };
-    let tokens: crate::auth::TokenPair =
-        match crate::auth::generate_token(user.id.to_string(), user.username.clone()) {
-            Ok(tokens) => tokens,
-            Err(_) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        success: false,
-                        message: "Failed to generate authentication tokens".to_string(),
-                    }),
-                ))
-            }
-        };
+    let tokens: TokenPair = match generate_token(user.id.to_string(), user.username.clone(), false)
+    {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    success: false,
+                    message: "Failed to generate authentication tokens".to_string(),
+                }),
+            ))
+        }
+    };
     Ok(Json(AuthResponse {
         success: true,
         access_token: Some(tokens.access_token),
         expires_in: Some(tokens.expires_in),
         user: Some(user.into()),
+    }))
+}
+
+pub async fn admin_login(
+    State(admin_repo): State<crate::database::AdminRepository>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<Json<AdminAuthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let auth_result: Option<Admin> =
+        match crate::auth::login_admin(&admin_repo, payload.username, payload.password).await {
+            Ok(result) => result,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        success: false,
+                        message: e.to_string(),
+                    }),
+                ))
+            }
+        };
+    let admin: Admin = match auth_result {
+        Some(admin) => admin,
+        None => {
+            return Ok(Json(AdminAuthResponse {
+                success: false,
+                access_token: None,
+                expires_in: None,
+                admin: None,
+            }));
+        }
+    };
+    if !admin.is_active {
+        return Ok(Json(AdminAuthResponse {
+            success: false,
+            access_token: None,
+            expires_in: None,
+            admin: None,
+        }));
+    }
+    let tokens: TokenPair = match generate_token(admin.id.to_string(), admin.username.clone(), true)
+    {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    success: false,
+                    message: "Failed to generate authentication tokens".to_string(),
+                }),
+            ))
+        }
+    };
+    Ok(Json(AdminAuthResponse {
+        success: true,
+        access_token: Some(tokens.access_token),
+        expires_in: Some(tokens.expires_in),
+        admin: Some(admin.into()),
     }))
 }

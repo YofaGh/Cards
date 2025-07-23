@@ -1,27 +1,20 @@
 
 -- ==================================================
--- migrations/001_create_users_table.sql
+-- migrations/001_create_admins_table.sql
 -- ==================================================
 
--- Create users table
-CREATE TABLE users (
+CREATE TABLE admins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     username VARCHAR(50) UNIQUE NOT NULL,
     email_verified BOOLEAN DEFAULT false NOT NULL,
     is_active BOOLEAN DEFAULT true NOT NULL,
-    is_locked BOOLEAN DEFAULT false NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     last_login TIMESTAMP,
-    games_played INT DEFAULT 0 NOT NULL,
-    games_won INT DEFAULT 0 NOT NULL
+    permissions TEXT[] DEFAULT '{}' NOT NULL
 );
-
--- Create indexes for users
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_username ON users(username);
 
 -- Create trigger function to automatically update updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -33,7 +26,7 @@ END;
 $$ language 'plpgsql';
 
 -- Create trigger for users table
-CREATE TRIGGER update_users_updated_at
-    BEFORE UPDATE ON users
+CREATE TRIGGER update_admins_updated_at
+    BEFORE UPDATE ON admins
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
