@@ -8,14 +8,16 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, task::JoinHandle};
 
 use crate::{
     database::{AdminRepository, UserRepository},
     prelude::*,
 };
 
-fn create_router(user_repo: UserRepository, admin_repo: AdminRepository) -> Router {
+fn create_router(pool: PgPool) -> Router {
+    let user_repo: UserRepository = UserRepository::new(pool.clone());
+    let admin_repo: AdminRepository = AdminRepository::new(pool.clone());
     let admin_auth_routes: Router<UserRepository> = Router::new()
         .route("/auth/admin/login", post(auth::admin_login))
         .with_state(admin_repo.clone());
@@ -30,17 +32,14 @@ fn create_router(user_repo: UserRepository, admin_repo: AdminRepository) -> Rout
         .with_state(user_repo)
 }
 
-pub async fn init_api_server(
-    user_repo: UserRepository,
-    admin_repo: AdminRepository,
-) -> Result<tokio::task::JoinHandle<()>> {
+pub async fn init_api_server(pool: PgPool) -> Result<JoinHandle<()>> {
     let config: &'static Config = get_config();
     let address: &str = &format!("{}:{}", config.api_server.host, config.api_server.port);
     let api_listener: TcpListener = TcpListener::bind(address)
         .await
         .map_err(|err: std::io::Error| Error::bind_address(address, err))?;
-    let app: Router = create_router(user_repo, admin_repo);
-    let api_server: tokio::task::JoinHandle<()> = tokio::spawn(async move {
+    let app: Router = create_router(pool);
+    let api_server: JoinHandle<()> = tokio::spawn(async move {
         axum::serve(api_listener, app)
             .await
             .expect("API server failed");

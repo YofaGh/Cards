@@ -1,8 +1,9 @@
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, task::JoinHandle};
+use tokio_rustls::TlsAcceptor;
 
 use crate::{network::protocol::*, prelude::*};
 
-pub async fn get_listener() -> Result<TcpListener> {
+async fn get_listener() -> Result<TcpListener> {
     let config: &'static Config = get_config();
     let address: &str = &format!("{}:{}", config.game_server.host, config.game_server.port);
     TcpListener::bind(address)
@@ -10,7 +11,7 @@ pub async fn get_listener() -> Result<TcpListener> {
         .map_err(|err: std::io::Error| Error::bind_address(address, err))
 }
 
-pub async fn handshake(connection: &mut Stream) -> Result<()> {
+async fn handshake(connection: &mut Stream) -> Result<()> {
     send_message(connection, &GameMessage::Handshake).await?;
     match receive_message(connection).await? {
         GameMessage::HandshakeResponse => Ok(()),
@@ -41,11 +42,10 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
             if token.is_empty() {
                 return Err(Error::Other("Empty game session token".to_string()));
             }
-            let claims: crate::auth::GameSessionClaims =
-                match crate::auth::validate_token(&token) {
-                    Ok(claims) => claims,
-                    _ => return Err(Error::Other("Invalid game session token".to_string())),
-                };
+            let claims: crate::auth::GameSessionClaims = match crate::auth::validate_token(&token) {
+                Ok(claims) => claims,
+                _ => return Err(Error::Other("Invalid game session token".to_string())),
+            };
             let now: usize = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -63,4 +63,50 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
             ))
         }
     }
+}
+
+pub async fn init_game_server() -> Result<JoinHandle<()>> {
+    super::tls::init_crypto_provider();
+    let tls_acceptor: TlsAcceptor = super::tls::get_tls_acceptor()?;
+    let listener: TcpListener = get_listener().await?;
+    let game_server: JoinHandle<()> = tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, addr)) => {
+                    let acceptor: TlsAcceptor = tls_acceptor.clone();
+                    tokio::spawn(async move {
+                        let mut tls_stream: Stream = match acceptor.accept(stream).await {
+                            Ok(tls_stream) => Stream::Server(tls_stream),
+                            Err(err) => {
+                                eprintln!("TLS handshake failed for {addr}: {err}");
+                                return;
+                            }
+                        };
+                        match handle_client(&mut tls_stream).await {
+                            Ok((username, game_choice)) => {
+                                println!("Player {username} wants to play {game_choice}");
+                                if let Err(err) = crate::core::get_game_registry()
+                                    .add_player_to_queue(
+                                        username.clone(),
+                                        game_choice.clone(),
+                                        tls_stream,
+                                    )
+                                    .await
+                                {
+                                    eprintln!(
+                                    "Failed to add player {username} to {game_choice} queue: {err}"
+                                );
+                                }
+                            }
+                            Err(err) => {
+                                eprintln!("Client handling failed for {addr}: {err}");
+                            }
+                        }
+                    });
+                }
+                Err(err) => eprintln!("Failed to accept connection: {err}"),
+            }
+        }
+    });
+    Ok(game_server)
 }

@@ -7,7 +7,10 @@ use crate::{core::read_file, prelude::*};
 
 #[cfg(all(debug_assertions, feature = "dev-certs"))]
 pub fn generate_self_signed_cert_rust() -> Result<()> {
-    println!("Generating self-signed certificate with Rust...");
+    if std::path::Path::new("cert.pem").exists() && std::path::Path::new("key.pem").exists() {
+        return Ok(());
+    }
+    println!("Certificate files not found. Generating self-signed certificate with Rust...");
     let mut params: rcgen::CertificateParams =
         rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])
             .map_err(|e| Error::Tls(format!("Failed to create certificate params: {e}")))?;
