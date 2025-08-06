@@ -90,6 +90,7 @@ pub enum GameStatus {
     NotStarted,
     Started,
     Finished,
+    Ended,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
