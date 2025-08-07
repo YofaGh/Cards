@@ -8,8 +8,8 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 
 echo "Waiting for database to be ready..."
-until sqlx database ping > /dev/null 2>&1; do
-  echo "Database is unavailable - sleeping"
+until sqlx database setup; do
+  echo "Database not ready yet - sleeping"
   sleep 1
 done
 
