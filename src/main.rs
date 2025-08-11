@@ -17,8 +17,10 @@ async fn main() -> core::types::Result<()> {
     config::init_config()?;
     let pool: sqlx::PgPool = database::create_database_pool().await?;
     database::test_database_connection(&pool).await?;
+    database::run_migrations(&pool).await?;
     let api_server = api::init_api_server(pool);
     let game_server = network::init_game_server();
     tokio::try_join!(api_server.await?, game_server.await?).unwrap();
+    println!("Servers started successfully");
     Ok(())
 }

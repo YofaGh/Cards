@@ -131,5 +131,6 @@ pub fn get_config() -> &'static Config {
 pub fn init_config() -> Result<(), Error> {
     let config: Config = Config::from_env()?;
     CONFIG.set(config).expect("Failed to set CONFIG");
+    println!("Initialized configuration successfully");
     Ok(())
 }
