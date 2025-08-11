@@ -70,6 +70,7 @@ pub async fn init_game_server() -> Result<JoinHandle<()>> {
     let tls_acceptor: TlsAcceptor = super::tls::get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
     let game_server: JoinHandle<()> = tokio::spawn(async move {
+        println!("Game server started successfully");
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {

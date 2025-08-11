@@ -44,5 +44,6 @@ pub async fn init_api_server(pool: PgPool) -> Result<JoinHandle<()>> {
             .await
             .expect("API server failed");
     });
+    println!("API server started successfully");
     Ok(api_server)
 }

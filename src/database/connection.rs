@@ -1,10 +1,10 @@
-use sqlx::{migrate, postgres::PgPoolOptions, Error as SqlxError};
+use sqlx::Error as SqlxError;
 
 use crate::prelude::*;
 
 pub async fn create_database_pool() -> Result<PgPool> {
     let config: &'static Config = get_config();
-    let pool: Result<PgPool> = PgPoolOptions::new()
+    let pool: Result<PgPool> = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.database.max_connections)
         .min_connections(config.database.min_connections)
         .acquire_timeout(std::time::Duration::from_secs(30))
@@ -16,12 +16,9 @@ pub async fn create_database_pool() -> Result<PgPool> {
 }
 
 pub async fn run_migrations(pool: &PgPool) -> Result<()> {
-    migrate!("./migrations")
-        .run(pool)
-        .await
-        .map_err(|err: migrate::MigrateError| {
-            Error::Other(format!("Failed to run migrations: {err}"))
-        })?;
+    sqlx::migrate!("./migrations").run(pool).await.map_err(
+        |err: sqlx::migrate::MigrateError| Error::Other(format!("Failed to run migrations: {err}")),
+    )?;
     println!("Migrations completed successfully");
     Ok(())
 }

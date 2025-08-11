@@ -18,14 +18,12 @@ async fn main() -> core::types::Result<()> {
     let pool: sqlx::PgPool = database::create_database_pool().await?;
     database::test_database_connection(&pool).await?;
     database::run_migrations(&pool).await?;
-    let api_server = api::init_api_server(pool);
-    let game_server = network::init_game_server();
-    println!("Servers started successfully");
+    println!("Starting servers...");
     tokio::select! {
-        result = api_server.await? => {
+        result = api::init_api_server(pool).await? => {
             eprintln!("API server exited unexpectedly: {result:?}");
         }
-        result = game_server.await? => {
+        result = network::init_game_server().await? => {
             eprintln!("Game server exited unexpectedly: {result:?}");
         }
         _ = tokio::signal::ctrl_c() => {
