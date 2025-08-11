@@ -20,7 +20,17 @@ async fn main() -> core::types::Result<()> {
     database::run_migrations(&pool).await?;
     let api_server = api::init_api_server(pool);
     let game_server = network::init_game_server();
-    tokio::try_join!(api_server.await?, game_server.await?).unwrap();
     println!("Servers started successfully");
+    tokio::select! {
+        result = api_server.await? => {
+            eprintln!("API server exited unexpectedly: {:?}", result);
+        }
+        result = game_server.await? => {
+            eprintln!("Game server exited unexpectedly: {:?}", result);
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("Shutdown signal received, stopping servers...");
+        }
+    }
     Ok(())
 }
