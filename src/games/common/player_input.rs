@@ -1,6 +1,7 @@
 use crate::{
+    core::send_message_to_player,
     games::INVALID_RESPONSE,
-    models::{Card, Player},
+    models::{Card, CorrelatedMessage, Player},
     prelude::*,
 };
 
@@ -9,13 +10,15 @@ pub async fn get_player_choice(
     message: &mut GameMessage,
     passable: bool,
     max_value: usize,
+    player_communication: (&mut Receiver<GameMessage>, &Sender<CorrelatedMessage>),
 ) -> Result<PlayerChoice> {
+    let (receiver, sender) = player_communication;
     let player_name: String = player.name.clone();
     let operation = async {
         loop {
-            player.send_message(message).await?;
-            match player.receive_message().await? {
-                GameMessage::PlayerChoice { choice } => {
+            send_message_to_player(sender, message.clone(), &player.id).await?;
+            match receiver.recv().await {
+                Some(GameMessage::PlayerChoice { choice }) => {
                     if choice == "pass" {
                         if passable {
                             return Ok(PlayerChoice::Pass);
@@ -46,11 +49,14 @@ pub async fn get_player_choice(
                         }
                     }
                 }
-                invalid => {
+                Some(invalid) => {
                     message.set_demand_error(format!(
                         "Expected message type PlayerChoice, but received {}",
                         invalid.message_type()
                     ));
+                }
+                None => {
+                    return Err(Error::Tcp("Receiver was closed".to_string()));
                 }
             }
         }
@@ -61,7 +67,9 @@ pub async fn get_player_choice(
 pub async fn get_player_team_choice(
     player: &mut Player,
     available_teams: Vec<(TeamId, String)>,
+    player_communication: (&mut Receiver<GameMessage>, &Sender<CorrelatedMessage>),
 ) -> Result<TeamId> {
+    let (receiver, sender) = player_communication;
     let player_name: String = player.name.clone();
     let mut message: GameMessage = GameMessage::team(
         available_teams
@@ -72,9 +80,9 @@ pub async fn get_player_team_choice(
     );
     let operation = async {
         loop {
-            player.send_message(&message).await?;
-            match player.receive_message().await? {
-                GameMessage::PlayerChoice { choice } => {
+            send_message_to_player(sender, message.clone(), &player.id).await?;
+            match receiver.recv().await {
+                Some(GameMessage::PlayerChoice { choice }) => {
                     if let Some((team_id, _)) =
                         available_teams.iter().find(|(_, name)| *name == choice)
                     {
@@ -83,11 +91,14 @@ pub async fn get_player_team_choice(
                         message.set_demand_error("Invalid team choice".to_owned());
                     }
                 }
-                invalid => {
+                Some(invalid) => {
                     message.set_demand_error(format!(
                         "Expected PlayerChoice, got {}",
                         invalid.message_type()
                     ));
+                }
+                None => {
+                    return Err(Error::Tcp("Receiver was closed".to_string()));
                 }
             }
         }

@@ -107,6 +107,12 @@ pub enum GameMessage {
     Cards {
         player_cards: Vec<String>,
     },
+    PlayerRequest {
+        request: PlayerRequest,
+    },
+    PlayerResponse {
+        response: PlayerResponse,
+    },
     AddGroundCards {
         ground_cards: Vec<String>,
     },
@@ -133,6 +139,8 @@ impl GameMessage {
             GameMessage::GameSessionToken { .. } => "GameSessionToken".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
+            GameMessage::PlayerRequest { .. } => "PlayerRequest".to_string(),
+            GameMessage::PlayerResponse { .. } => "PlayerResponse".to_string(),
         }
     }
     pub fn set_demand_error(&mut self, new_error: String) {
@@ -195,4 +203,22 @@ pub enum BroadcastMessage {
     GameWinner { game_winner: String },
     GameScore { teams_score: Vec<(String, usize)> },
     RoundScore { teams_score: Vec<(String, usize)> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum PlayerRequest {
+    GameScore,
+    RoundScore,
+    CurrentHokm,
+    GroundCards,
+    GameStatus,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum PlayerResponse {
+    GameScoreResponse { teams_score: Vec<(String, usize)> },
+    RoundScoreResponse { teams_score: Vec<(String, usize)> },
+    CurrentHokmResponse { hokm: String },
+    GroundCardsResponse { ground_cards: Vec<(String, String)> },
+    GameStatusResponse { game_status: GameStatus },
 }

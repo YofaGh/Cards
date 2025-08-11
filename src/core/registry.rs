@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::{games::*, prelude::*};
+use crate::{games::*, models::Player, prelude::*};
 
 pub struct GameQueue {
     pub game_type: String,
@@ -163,11 +163,17 @@ impl GameRegistry {
                                         "Failed to notify players in queue {game_type}: {err}"
                                     );
                                 }
-                                for player in game_guard.get_players() {
-                                    if let Err(err) = player.close_connection().await {
+                                let player_ids: Vec<(PlayerId, String)> = game_guard
+                                    .get_players()
+                                    .iter()
+                                    .map(|player: &&mut Player| (player.id, player.name.clone()))
+                                    .collect();
+                                for (player_id, player_name) in player_ids {
+                                    if let Err(err) =
+                                        game_guard.close_player_connection(&player_id).await
+                                    {
                                         eprintln!(
-                                            "Failed to close connection for player {}: {err}",
-                                            player.name
+                                            "Failed to close connection for player {player_name}: {err}",
                                         );
                                     }
                                 }

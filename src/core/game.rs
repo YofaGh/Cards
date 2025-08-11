@@ -1,10 +1,21 @@
 #![allow(dead_code)]
 
-use crate::{models::Player, prelude::*};
+use tokio::{
+    io::{AsyncWriteExt, ReadHalf, WriteHalf},
+    sync::oneshot,
+    task::{JoinError, JoinHandle},
+};
+
+use crate::{
+    core::send_message_to_player,
+    models::{CorrelatedMessage, Player, PlayerConnection},
+    prelude::*,
+};
 
 #[async_trait]
 pub trait Game: Send + Sync {
     fn get_players(&mut self) -> Vec<&mut Player>;
+    fn get_player_ids(&self) -> Vec<PlayerId>;
     fn add_player(&mut self, name: String, connection: Stream) -> Result<()>;
     fn get_player_count(&self) -> usize;
     fn is_full(&self) -> bool;
@@ -14,6 +25,18 @@ pub trait Game: Send + Sync {
     fn set_status(&mut self, status: GameStatus);
     async fn start(&mut self) -> Result<()>;
     async fn setup_teams(&mut self) -> Result<()>;
+    async fn update_shared_state(&self) -> Result<()>;
+    fn get_player_sender(&self, player_id: &PlayerId) -> Result<&Sender<CorrelatedMessage>>;
+    fn remove_player_connection(&mut self, player_id: &PlayerId) -> Option<PlayerConnection>;
+    fn remove_player(&mut self, player_id: &PlayerId);
+    fn setup_receiver(
+        &self,
+        player_id: PlayerId,
+        reader: ReadHalf<Stream>,
+        sender: Sender<GameMessage>,
+        req_sender: Sender<CorrelatedMessage>,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<JoinHandle<ReadHalf<Stream>>>;
 
     fn is_finished(&self) -> bool {
         self.get_status() == &GameStatus::Finished
@@ -24,19 +47,71 @@ pub trait Game: Send + Sync {
     fn is_not_started(&self) -> bool {
         self.get_status() == &GameStatus::NotStarted
     }
+    async fn send_message_to_player(
+        &self,
+        player_id: &PlayerId,
+        message: GameMessage,
+    ) -> Result<()> {
+        send_message_to_player(self.get_player_sender(player_id)?, message, player_id).await
+    }
+    fn setup_sender(
+        &self,
+        writer: WriteHalf<Stream>,
+        mut receiver: Receiver<CorrelatedMessage>,
+        mut shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<JoinHandle<WriteHalf<Stream>>> {
+        let handle: JoinHandle<WriteHalf<Stream>> = tokio::spawn(async move {
+            let mut writer: WriteHalf<Stream> = writer;
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => {
+                        println!("Sender shutting down");
+                        break;
+                    }
+                    correlated_msg = receiver.recv() => {
+                        match correlated_msg {
+                            Some(CorrelatedMessage { message, response_tx }) => {
+                                let success = crate::network::protocol::send_message_halved(&mut writer, &message)
+                                    .await;
+                                let _ = response_tx.send(success);
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            writer
+        });
+        Ok(handle)
+    }
     async fn _broadcast_message(&mut self, message: BroadcastMessage) -> Result<Vec<String>> {
         let game_message: GameMessage = GameMessage::Broadcast { message };
-        let send_futures: Vec<_> = self
+        let infos: Vec<(PlayerId, String)> = self
             .get_players()
+            .iter()
+            .map(|player: &&mut Player| (player.id, player.name.clone()))
+            .collect();
+        let player_info: Vec<(PlayerId, String, Sender<CorrelatedMessage>)> = infos
             .into_iter()
-            .map(|player: &mut Player| (player.name.clone(), player))
-            .map(|(player_name, player)| {
+            .filter_map(|(player_id, player_name)| {
+                if let Ok(sender) = self.get_player_sender(&player_id) {
+                    return Some((player_id, player_name, sender.clone()));
+                }
+                None
+            })
+            .collect();
+        let send_futures: Vec<_> = player_info
+            .into_iter()
+            .map(|(player_id, player_name, sender)| {
                 let game_message: GameMessage = game_message.clone();
                 async move {
-                    match player.send_message(&game_message).await {
-                        Err(Error::Tcp(_)) => Some(player_name),
-                        _ => None,
+                    if send_message_to_player(&sender, game_message, &player_id)
+                        .await
+                        .is_err()
+                    {
+                        return Some(player_name);
                     }
+                    None
                 }
             })
             .collect();
@@ -55,12 +130,47 @@ pub trait Game: Send + Sync {
         let reason: String = format!("Failed to send message to {}", failed_players.join(", "));
         self.end_game(reason).await
     }
+    async fn close_player_connection(&mut self, player_id: &PlayerId) -> Result<()> {
+        if let Some(connection) = self.remove_player_connection(player_id) {
+            let _ = connection.reader_shutdown_tx.send(());
+            let _ = connection.writer_shutdown_tx.send(());
+            let reader_result: Result<ReadHalf<Stream>, JoinError> = connection.reader_handle.await;
+            let writer_result: Result<WriteHalf<Stream>, JoinError> =
+                connection.writer_handle.await;
+            match (reader_result, writer_result) {
+                (Ok(reader), Ok(writer)) => {
+                    let mut stream: Stream = reader.unsplit(writer);
+                    if let Err(e) = stream.shutdown().await {
+                        println!(
+                            "Error shutting down stream for player {:?}: {:?}",
+                            player_id, e
+                        );
+                    }
+                    println!("Successfully closed connection for player {:?}", player_id);
+                }
+                (Err(e1), Err(e2)) => {
+                    println!(
+                        "Both tasks failed for player {:?}: reader={:?}, writer={:?}",
+                        player_id, e1, e2
+                    );
+                }
+                (Err(e), _) => {
+                    println!("Reader task failed for player {:?}: {:?}", player_id, e);
+                }
+                (_, Err(e)) => {
+                    println!("Writer task failed for player {:?}: {:?}", player_id, e);
+                }
+            }
+        }
+        self.remove_player(player_id);
+        Ok(())
+    }
     async fn end_game(&mut self, reason: String) -> Result<()> {
         self._broadcast_message(BroadcastMessage::GameCancelled { reason })
             .await
             .ok();
-        for player in self.get_players() {
-            player.close_connection().await.ok();
+        for player_id in self.get_player_ids() {
+            self.close_player_connection(&player_id).await.ok();
         }
         self.set_status(GameStatus::Ended);
         Err(Error::Other("Game ended".to_string()))

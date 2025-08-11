@@ -48,7 +48,7 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
             };
             let now: usize = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|_| Error::Other("System time error".to_string()))?
                 .as_secs() as usize;
             if claims.exp < now {
                 return Err(Error::Other("Game session token expired".to_string()));

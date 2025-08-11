@@ -1,5 +1,17 @@
+use std::sync::Arc;
+use tokio::{
+    io::{ReadHalf, WriteHalf},
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
+
 use crate::{
-    core::Game, games::*, get_player, get_player_mut, get_team, get_team_mut, models::*, prelude::*,
+    core::{send_message_to_player, Game},
+    games::*,
+    get_player, get_player_communication, get_player_mut, get_team, get_team_mut,
+    models::*,
+    network::protocol::receive_message_halved,
+    prelude::*,
 };
 
 const NUMBER_OF_PLAYERS: usize = 4;
@@ -14,12 +26,134 @@ impl Game for Qafoon {
         self.players.values_mut().collect()
     }
 
+    fn get_player_ids(&self) -> Vec<PlayerId> {
+        self.players.keys().copied().collect()
+    }
+
     fn add_player(&mut self, name: String, connection: Stream) -> Result<()> {
         if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
         }
-        let player: Player = Player::new(name, TeamId::nil(), connection);
+        let (reader, writer) = tokio::io::split(connection);
+        let (shutdown_tx_reader, shutdown_rx_reader) = oneshot::channel();
+        let (shutdown_tx_writer, shutdown_rx_writer) = oneshot::channel();
+        let (s_sender, s_receiver) = mpsc::channel(1024);
+        let (r_sender, r_receiver) = mpsc::channel(1024);
+        let player: Player = Player::new(name);
+        let reader_handle: JoinHandle<ReadHalf<Stream>> = self.setup_receiver(
+            player.id,
+            reader,
+            s_sender,
+            r_sender.clone(),
+            shutdown_rx_reader,
+        )?;
+        self.players_receiver.insert(player.id, s_receiver);
+        let writer_handle: JoinHandle<WriteHalf<Stream>> =
+            self.setup_sender(writer, r_receiver, shutdown_rx_writer)?;
+        self.players_sender.insert(player.id, r_sender);
+        self.player_connections.insert(
+            player.id,
+            PlayerConnection {
+                reader_handle,
+                writer_handle,
+                reader_shutdown_tx: shutdown_tx_reader,
+                writer_shutdown_tx: shutdown_tx_writer,
+            },
+        );
         self.players.insert(player.id, player);
+        Ok(())
+    }
+
+    fn setup_receiver(
+        &self,
+        player_id: PlayerId,
+        reader: ReadHalf<Stream>,
+        sender: Sender<GameMessage>,
+        req_sender: Sender<CorrelatedMessage>,
+        mut shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<JoinHandle<ReadHalf<Stream>>> {
+        let shared_state: Arc<tokio::sync::RwLock<GameSharedState>> = self.shared_state.clone();
+        let handle: JoinHandle<ReadHalf<Stream>> = tokio::spawn(async move {
+            let mut reader: ReadHalf<Stream> = reader;
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => {
+                        println!("Receiver shutting down for player {:?}", player_id);
+                        break;
+                    }
+                    message_result = receive_message_halved(&mut reader) => {
+                        match message_result {
+                            Ok(message) => {
+                                match message {
+                                    GameMessage::PlayerRequest { request } => {
+                                        let response: PlayerResponse = match request {
+                                            PlayerRequest::GameScore => {
+                                                PlayerResponse::GameScoreResponse {
+                                                    teams_score: shared_state.read().await.game_score.clone()
+                                                }
+                                            },
+                                            PlayerRequest::RoundScore => {
+                                                PlayerResponse::RoundScoreResponse {
+                                                    teams_score: shared_state.read().await.round_score.clone()
+                                                }
+                                            },
+                                            PlayerRequest::CurrentHokm => {
+                                                PlayerResponse::CurrentHokmResponse {
+                                                    hokm: shared_state.read().await.current_hokm.code()
+                                                }
+                                            },
+                                            PlayerRequest::GroundCards => {
+                                                PlayerResponse::GroundCardsResponse {
+                                                    ground_cards: shared_state.read().await.ground_cards.clone()
+                                                }
+                                            },
+                                            PlayerRequest::GameStatus => {
+                                                PlayerResponse::GameStatusResponse {
+                                                    game_status: shared_state.read().await.game_status.clone()
+                                                }
+                                            }
+                                        };
+                                        let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, &player_id).await;
+                                    }
+                                    _ => {
+                                        let _ = sender.try_send(message);
+                                    }
+                                }
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
+            reader
+        });
+        Ok(handle)
+    }
+
+    fn get_player_sender(&self, player_id: &PlayerId) -> Result<&Sender<CorrelatedMessage>> {
+        self.players_sender
+            .get(player_id)
+            .ok_or(Error::player_not_found(*player_id))
+    }
+
+    fn remove_player_connection(&mut self, player_id: &PlayerId) -> Option<PlayerConnection> {
+        self.player_connections.remove(player_id)
+    }
+
+    fn remove_player(&mut self, player_id: &PlayerId) {
+        self.players.remove(player_id);
+        self.players_receiver.remove(player_id);
+        self.players_sender.remove(player_id);
+    }
+
+    async fn update_shared_state(&self) -> Result<()> {
+        let mut state: tokio::sync::RwLockWriteGuard<GameSharedState> =
+            self.shared_state.write().await;
+        state.game_score = self.get_teams_game_score();
+        state.round_score = self.get_teams_round_score();
+        state.current_hokm = self.hokm.clone();
+        state.ground_cards = self.get_ground_cards().unwrap_or_default();
+        state.game_status = self.status.clone();
         Ok(())
     }
 
@@ -137,7 +271,7 @@ impl Qafoon {
             let message: GameMessage = GameMessage::Cards {
                 player_cards: code_cards(&player.hand),
             };
-            if let Err(Error::Tcp(_)) = player.send_message(&message).await {
+            if let Err(Error::Tcp(_)) = self.send_message_to_player(player_id, message).await {
                 self.end_game(format!("Player {player_name} left")).await?;
             }
         }
@@ -184,15 +318,23 @@ impl Qafoon {
             if player.hand.len() <= 12 {
                 break;
             }
-            let player_choice: Result<PlayerChoice> =
-                get_player_choice(player, &mut message, false, 0).await;
+            let player_choice: Result<PlayerChoice> = get_player_choice(
+                player,
+                &mut message,
+                false,
+                0,
+                get_player_communication!(self, player_id),
+            )
+            .await;
             match player_choice {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     player.remove_card(&player_choice).ok();
                     let card_code: String = player_choice.code();
                     folded_cards.push(player_choice);
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
-                    if let Err(Error::Tcp(_)) = player.send_message(&message).await {
+                    if let Err(Error::Tcp(_)) =
+                        self.send_message_to_player(&player_id, message).await
+                    {
                         self.end_game(format!("Player {player_name} left")).await?;
                     }
                 }
@@ -214,8 +356,14 @@ impl Qafoon {
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id);
             let player_name: String = player.name.clone();
-            let player_choice: Result<PlayerChoice> =
-                get_player_choice(player, &mut message, false, hokms.len() - 1).await;
+            let player_choice: Result<PlayerChoice> = get_player_choice(
+                player,
+                &mut message,
+                false,
+                hokms.len() - 1,
+                get_player_communication!(self, player_id),
+            )
+            .await;
             match player_choice {
                 Ok(PlayerChoice::HokmChoice(player_choice)) => {
                     if hokms.contains(&player_choice) {
@@ -308,8 +456,14 @@ impl Qafoon {
                 let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_name: String = player.name.clone();
-                let player_choice: Result<PlayerChoice> =
-                    get_player_choice(player, &mut message, true, HIGHEST_BET).await;
+                let player_choice: Result<PlayerChoice> = get_player_choice(
+                    player,
+                    &mut message,
+                    true,
+                    HIGHEST_BET,
+                    get_player_communication!(self, player_id),
+                )
+                .await;
                 match player_choice {
                     Ok(choice) => {
                         bets.push((player.name.clone(), choice.clone()));
@@ -344,7 +498,10 @@ impl Qafoon {
                     let message: GameMessage = GameMessage::AddGroundCards {
                         ground_cards: ground_card_codes,
                     };
-                    if let Err(Error::Tcp(_)) = highest_bettor.send_message(&message).await {
+                    if let Err(Error::Tcp(_)) = self
+                        .send_message_to_player(&highest_bettor_id, message)
+                        .await
+                    {
                         self.end_game(format!("Player {player_name} left")).await?;
                     }
                     (player_name, team_id)
@@ -421,8 +578,8 @@ impl Qafoon {
             game_winner: game_winner.to_string(),
         })
         .await?;
-        for player in self.players.values_mut() {
-            player.close_connection().await?;
+        for player_id in self.get_player_ids() {
+            self.close_player_connection(&player_id).await?;
         }
         self.set_status(GameStatus::Finished);
         Ok(())
@@ -458,8 +615,14 @@ impl Qafoon {
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id);
             let player_name: String = player.name.clone();
-            let player_choice: Result<PlayerChoice> =
-                get_player_choice(player, &mut message, false, 0).await;
+            let player_choice: Result<PlayerChoice> = get_player_choice(
+                player,
+                &mut message,
+                false,
+                0,
+                get_player_communication!(self, player_id),
+            )
+            .await;
             match player_choice {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     if !is_round_starter {
@@ -480,8 +643,12 @@ impl Qafoon {
                     let card_code: String = player_choice.code();
                     self.ground.add_card(player_id, player_choice)?;
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
-                    if let Err(Error::Tcp(_)) = player.send_message(&message).await {
+                    if let Err(Error::Tcp(_)) =
+                        self.send_message_to_player(&player_id, message).await
+                    {
                         self.end_game(format!("Player {player_name} left")).await?;
+                    } else {
+                        return Ok(());
                     }
                 }
                 Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
@@ -493,7 +660,7 @@ impl Qafoon {
     }
 
     async fn do_team_selection(&mut self) -> Result<()> {
-        for player_id in self.players.keys().copied().collect::<Vec<PlayerId>>() {
+        for player_id in self.get_player_ids() {
             let team_id: TeamId = self.assign_player_to_team(player_id).await?;
             get_player_mut!(self.players, player_id).team_id = team_id;
         }
@@ -504,7 +671,13 @@ impl Qafoon {
         let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
         let player: &mut Player = get_player_mut!(self.players, player_id);
         let player_name: String = player.name.clone();
-        match get_player_team_choice(player, available_teams).await {
+        match get_player_team_choice(
+            player,
+            available_teams,
+            get_player_communication!(self, player_id),
+        )
+        .await
+        {
             Ok(team_id) => {
                 get_team_mut!(self.teams, team_id).players.push(player_id);
                 return Ok(team_id);
@@ -519,6 +692,7 @@ impl Qafoon {
     async fn run_game(&mut self) -> Result<()> {
         self.set_status(GameStatus::Started);
         self.generate_field()?;
+        self.update_shared_state().await?;
         shuffle(&mut self.cards, ShuffleMethod::Hard);
         while self.should_continue_game()? {
             self.broadcast_message(BroadcastMessage::GameScore {
@@ -536,6 +710,7 @@ impl Qafoon {
             let mut round_starter_id: PlayerId = self.starter;
             self.fold_first(highest_bettor_id).await?;
             self.set_hokm(highest_bettor_id, highest_bet).await?;
+            self.update_shared_state().await?;
             let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
             while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
                 self.broadcast_message(BroadcastMessage::RoundScore {
@@ -549,6 +724,7 @@ impl Qafoon {
                     .map(|(index, _)| index)
                     .ok_or(Error::player_not_found(round_starter_id))?;
                 self.play_card(round_starter_id).await?;
+                self.update_shared_state().await?;
                 for index in 1..NUMBER_OF_PLAYERS {
                     self.broadcast_message(BroadcastMessage::GroundCards {
                         ground_cards: self.get_ground_cards()?,
@@ -557,12 +733,15 @@ impl Qafoon {
                     let player_to_play_id: PlayerId =
                         self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
                     self.play_card(player_to_play_id).await?;
+                    self.update_shared_state().await?;
                 }
                 round_starter_id = self.get_hand_collector_id()?;
                 self.collect_hand(round_starter_id)?;
+                self.update_shared_state().await?;
             }
             self.finish_round(off_team_id, def_team_id, highest_bet)
                 .await?;
+            self.update_shared_state().await?;
             self.prepare_next_round()?;
         }
         self.finish_game().await
