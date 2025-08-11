@@ -116,10 +116,7 @@ pub trait Game: Send + Sync {
             })
             .collect();
         let results: Vec<Option<String>> = futures::future::join_all(send_futures).await;
-        let failed_players: Vec<String> = results
-            .into_iter()
-            .filter_map(|x: Option<String>| x)
-            .collect();
+        let failed_players: Vec<String> = results.into_iter().flatten().collect();
         Ok(failed_players)
     }
     async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
@@ -140,25 +137,21 @@ pub trait Game: Send + Sync {
             match (reader_result, writer_result) {
                 (Ok(reader), Ok(writer)) => {
                     let mut stream: Stream = reader.unsplit(writer);
-                    if let Err(e) = stream.shutdown().await {
-                        println!(
-                            "Error shutting down stream for player {:?}: {:?}",
-                            player_id, e
-                        );
+                    if let Err(err) = stream.shutdown().await {
+                        println!("Error shutting down stream for player {player_id:?}: {err:?}");
                     }
-                    println!("Successfully closed connection for player {:?}", player_id);
+                    println!("Successfully closed connection for player {player_id:?}");
                 }
-                (Err(e1), Err(e2)) => {
+                (Err(err1), Err(err2)) => {
                     println!(
-                        "Both tasks failed for player {:?}: reader={:?}, writer={:?}",
-                        player_id, e1, e2
+                        "Both tasks failed for player {player_id:?}: reader={err1:?}, writer={err2:?}"
                     );
                 }
-                (Err(e), _) => {
-                    println!("Reader task failed for player {:?}: {:?}", player_id, e);
+                (Err(err), _) => {
+                    println!("Reader task failed for player {player_id:?}: {err:?}");
                 }
-                (_, Err(e)) => {
-                    println!("Writer task failed for player {:?}: {:?}", player_id, e);
+                (_, Err(err)) => {
+                    println!("Writer task failed for player {player_id:?}: {err:?}");
                 }
             }
         }

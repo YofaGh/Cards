@@ -216,9 +216,9 @@ pub enum PlayerRequest {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum PlayerResponse {
-    GameScoreResponse { teams_score: Vec<(String, usize)> },
-    RoundScoreResponse { teams_score: Vec<(String, usize)> },
-    CurrentHokmResponse { hokm: String },
-    GroundCardsResponse { ground_cards: Vec<(String, String)> },
-    GameStatusResponse { game_status: GameStatus },
+    GameScore { teams_score: Vec<(String, usize)> },
+    RoundScore { teams_score: Vec<(String, usize)> },
+    CurrentHokm { hokm: String },
+    GroundCards { ground_cards: Vec<(String, String)> },
+    GameStatus { game_status: GameStatus },
 }

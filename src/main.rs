@@ -23,10 +23,10 @@ async fn main() -> core::types::Result<()> {
     println!("Servers started successfully");
     tokio::select! {
         result = api_server.await? => {
-            eprintln!("API server exited unexpectedly: {:?}", result);
+            eprintln!("API server exited unexpectedly: {result:?}");
         }
         result = game_server.await? => {
-            eprintln!("Game server exited unexpectedly: {:?}", result);
+            eprintln!("Game server exited unexpectedly: {result:?}");
         }
         _ = tokio::signal::ctrl_c() => {
             println!("Shutdown signal received, stopping servers...");

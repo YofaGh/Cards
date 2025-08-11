@@ -78,49 +78,46 @@ impl Game for Qafoon {
             loop {
                 tokio::select! {
                     _ = &mut shutdown_rx => {
-                        println!("Receiver shutting down for player {:?}", player_id);
+                        println!("Receiver shutting down for player {player_id:?}");
                         break;
                     }
                     message_result = receive_message_halved(&mut reader) => {
-                        match message_result {
-                            Ok(message) => {
-                                match message {
-                                    GameMessage::PlayerRequest { request } => {
-                                        let response: PlayerResponse = match request {
-                                            PlayerRequest::GameScore => {
-                                                PlayerResponse::GameScoreResponse {
-                                                    teams_score: shared_state.read().await.game_score.clone()
-                                                }
-                                            },
-                                            PlayerRequest::RoundScore => {
-                                                PlayerResponse::RoundScoreResponse {
-                                                    teams_score: shared_state.read().await.round_score.clone()
-                                                }
-                                            },
-                                            PlayerRequest::CurrentHokm => {
-                                                PlayerResponse::CurrentHokmResponse {
-                                                    hokm: shared_state.read().await.current_hokm.code()
-                                                }
-                                            },
-                                            PlayerRequest::GroundCards => {
-                                                PlayerResponse::GroundCardsResponse {
-                                                    ground_cards: shared_state.read().await.ground_cards.clone()
-                                                }
-                                            },
-                                            PlayerRequest::GameStatus => {
-                                                PlayerResponse::GameStatusResponse {
-                                                    game_status: shared_state.read().await.game_status.clone()
-                                                }
+                        if let Ok(message) = message_result {
+                            match message {
+                                GameMessage::PlayerRequest { request } => {
+                                    let response: PlayerResponse = match request {
+                                        PlayerRequest::GameScore => {
+                                            PlayerResponse::GameScore {
+                                                teams_score: shared_state.read().await.game_score.clone()
                                             }
-                                        };
-                                        let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, &player_id).await;
-                                    }
-                                    _ => {
-                                        let _ = sender.try_send(message);
-                                    }
+                                        },
+                                        PlayerRequest::RoundScore => {
+                                            PlayerResponse::RoundScore {
+                                                teams_score: shared_state.read().await.round_score.clone()
+                                            }
+                                        },
+                                        PlayerRequest::CurrentHokm => {
+                                            PlayerResponse::CurrentHokm {
+                                                hokm: shared_state.read().await.current_hokm.code()
+                                            }
+                                        },
+                                        PlayerRequest::GroundCards => {
+                                            PlayerResponse::GroundCards {
+                                                ground_cards: shared_state.read().await.ground_cards.clone()
+                                            }
+                                        },
+                                        PlayerRequest::GameStatus => {
+                                            PlayerResponse::GameStatus {
+                                                game_status: shared_state.read().await.game_status.clone()
+                                            }
+                                        }
+                                    };
+                                    let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, &player_id).await;
+                                }
+                                _ => {
+                                    let _ = sender.try_send(message);
                                 }
                             }
-                            Err(_) => {}
                         }
                     }
                 }
@@ -680,11 +677,11 @@ impl Qafoon {
         {
             Ok(team_id) => {
                 get_team_mut!(self.teams, team_id).players.push(player_id);
-                return Ok(team_id);
+                Ok(team_id)
             }
             _ => {
                 self.end_game(format!("Player {player_name} left")).await?;
-                return Err(Error::Other("Failed to assign player to team".to_string()));
+                Err(Error::Other("Failed to assign player to team".to_string()))
             }
         }
     }
