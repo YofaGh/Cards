@@ -23,6 +23,7 @@ pub trait Game: Send + Sync {
     fn initialize_game(&mut self) -> Result<()>;
     fn generate_cards(&mut self) -> Result<()>;
     fn set_status(&mut self, status: GameStatus);
+    fn get_field(&self) -> Vec<PlayerId>;
     async fn start(&mut self) -> Result<()>;
     async fn setup_teams(&mut self) -> Result<()>;
     async fn update_shared_state(&self) -> Result<()>;

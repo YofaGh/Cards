@@ -169,6 +169,10 @@ impl Game for Qafoon {
         self.players.len()
     }
 
+    fn get_field(&self) -> Vec<PlayerId> {
+        self.field.iter().copied().collect()
+    }
+
     fn is_full(&self) -> bool {
         self.get_player_count() >= NUMBER_OF_PLAYERS
     }
@@ -259,8 +263,13 @@ impl Qafoon {
             .await?;
         let cards_per_player: usize = self.cards.len() / NUMBER_OF_PLAYERS;
         let round_starter_index: usize = self.get_bettor_starter_index()?;
-        for index in 0..NUMBER_OF_PLAYERS {
-            let player_id: PlayerId = self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
+        for player_id in self
+            .get_field()
+            .into_iter()
+            .cycle()
+            .skip(round_starter_index)
+            .take(NUMBER_OF_PLAYERS)
+        {
             let player: &mut Player = get_player_mut!(self.players, player_id);
             let player_cards: Vec<Card> = self.cards.drain(0..cards_per_player).collect();
             player.set_cards(player_cards)?;
@@ -480,9 +489,13 @@ impl Qafoon {
         let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
         let round_starter_index: usize = self.get_bettor_starter_index()?;
         loop {
-            for index in 0..NUMBER_OF_PLAYERS {
-                let player_id: PlayerId =
-                    self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
+            for player_id in self
+                .get_field()
+                .into_iter()
+                .cycle()
+                .skip(round_starter_index)
+                .take(NUMBER_OF_PLAYERS)
+            {
                 let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_name: String = player.name.clone();
@@ -753,16 +766,21 @@ impl Qafoon {
                     .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
                     .map(|(index, _)| index)
                     .ok_or(Error::player_not_found(round_starter_id))?;
-                self.play_card(round_starter_id).await?;
-                self.update_shared_state().await?;
-                for index in 1..NUMBER_OF_PLAYERS {
-                    self.broadcast_message(BroadcastMessage::GroundCards {
-                        ground_cards: self.get_ground_cards()?,
-                    })
-                    .await?;
-                    let player_to_play_id: PlayerId =
-                        self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
-                    self.play_card(player_to_play_id).await?;
+                for (index, player_id) in self
+                    .get_field()
+                    .into_iter()
+                    .cycle()
+                    .skip(round_starter_index)
+                    .take(NUMBER_OF_PLAYERS)
+                    .enumerate()
+                {
+                    if index > 0 {
+                        self.broadcast_message(BroadcastMessage::GroundCards {
+                            ground_cards: self.get_ground_cards()?,
+                        })
+                        .await?;
+                    }
+                    self.play_card(player_id).await?;
                     self.update_shared_state().await?;
                 }
                 round_starter_id = self.get_hand_collector_id()?;
