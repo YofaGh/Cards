@@ -252,7 +252,7 @@ impl Qafoon {
             .iter()
             .map(|(player_id, card)| {
                 Ok((
-                    get_player!(self.players, *player_id).name.clone(),
+                    get_player!(self.players, *player_id)?.name.clone(),
                     card.code(),
                 ))
             })
@@ -271,7 +271,7 @@ impl Qafoon {
             .skip(round_starter_index)
             .take(NUMBER_OF_PLAYERS)
         {
-            let player: &mut Player = get_player_mut!(self.players, player_id);
+            let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_cards: Vec<Card> = self.cards.drain(0..cards_per_player).collect();
             player.set_cards(player_cards)?;
             let player_name: String = player.name.clone();
@@ -297,25 +297,25 @@ impl Qafoon {
                 .ok_or(Error::Other(
                     "team with highest score was not found".to_owned(),
                 ))?;
-            let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
+            let starter_team_id: TeamId = get_player!(self.players, self.starter)?.team_id;
             if starter_team_id != team_with_highest_score_id {
                 let index: usize = get_player_field_index!(self.field, self.starter)?;
                 self.starter = self.field[(index + 1) % self.field.len()];
             }
         }
         self.broadcast_message(BroadcastMessage::Starter {
-            name: get_player!(self.players, self.starter).name.clone(),
+            name: get_player!(self.players, self.starter)?.name.clone(),
         })
         .await?;
         Ok(())
     }
 
     async fn fold_first(&mut self, player_id: PlayerId) -> Result<()> {
-        let team_id: TeamId = get_player!(self.players, player_id).team_id;
+        let team_id: TeamId = get_player!(self.players, player_id)?.team_id;
         let mut folded_cards: Vec<Card> = Vec::new();
         let mut message: GameMessage = GameMessage::demand(DemandMessage::Fold);
         loop {
-            let player: &mut Player = get_player_mut!(self.players, player_id);
+            let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_name: String = player.name.clone();
             if player.hand.len() <= 12 {
                 break;
@@ -325,7 +325,7 @@ impl Qafoon {
                 &mut message,
                 false,
                 0,
-                get_player_communication!(self, player_id),
+                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
             )
             .await;
             match player_choice {
@@ -346,7 +346,7 @@ impl Qafoon {
                 }
             }
         }
-        get_team_mut!(self.teams, team_id)
+        get_team_mut!(self.teams, team_id)?
             .collected_hands
             .push(folded_cards);
         Ok(())
@@ -356,14 +356,14 @@ impl Qafoon {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let mut message: GameMessage = GameMessage::demand(DemandMessage::Hokm);
         loop {
-            let player: &mut Player = get_player_mut!(self.players, player_id);
+            let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_name: String = player.name.clone();
             let player_choice: Result<PlayerChoice> = get_player_choice(
                 player,
                 &mut message,
                 false,
                 hokms.len() - 1,
-                get_player_communication!(self, player_id),
+                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
             )
             .await;
             match player_choice {
@@ -438,9 +438,9 @@ impl Qafoon {
     }
 
     fn collect_hand(&mut self, player_to_collect_id: PlayerId) -> Result<()> {
-        let team_to_collect_id: TeamId = get_player!(self.players, player_to_collect_id).team_id;
+        let team_to_collect_id: TeamId = get_player!(self.players, player_to_collect_id)?.team_id;
         let ground_cards: Vec<Card> = self.ground.cards.drain(..).map(|(_, card)| card).collect();
-        get_team_mut!(self.teams, team_to_collect_id)
+        get_team_mut!(self.teams, team_to_collect_id)?
             .collected_hands
             .push(ground_cards);
         Ok(())
@@ -450,20 +450,18 @@ impl Qafoon {
         if self.starter.is_nil() {
             return Ok(0);
         }
-        let team_with_highest_score_id: TeamId = self
+        let starter_team_id: TeamId = get_player!(self.players, self.starter)?.team_id;
+        let starter_index: usize = get_player_field_index!(self.field, self.starter)?;
+        let highest_scoring_team_id: TeamId = self
             .teams
             .values()
             .max_by_key(|team: &&Team| team.score)
             .map(|team: &Team| team.id)
-            .ok_or(Error::Other(
-                "team with highest score was not found".to_owned(),
-            ))?;
-        let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
-        let starter_index: Result<usize> = get_player_field_index!(self.field, self.starter);
-        if starter_team_id == team_with_highest_score_id {
-            starter_index
+            .ok_or_else(|| Error::Other("No teams found".to_owned()))?;
+        if starter_team_id == highest_scoring_team_id {
+            Ok(starter_index)
         } else {
-            Ok((starter_index? + 1) % self.field.len())
+            Ok((starter_index + 1) % self.field.len())
         }
     }
 
@@ -484,14 +482,18 @@ impl Qafoon {
                 .take(NUMBER_OF_PLAYERS)
             {
                 let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
-                let player: &mut Player = get_player_mut!(self.players, player_id);
+                let player: &mut Player = get_player_mut!(self.players, player_id)?;
                 let player_name: String = player.name.clone();
                 let player_choice: Result<PlayerChoice> = get_player_choice(
                     player,
                     &mut message,
                     true,
                     HIGHEST_BET,
-                    get_player_communication!(self, player_id),
+                    get_player_communication!(
+                        self.players_receiver,
+                        self.players_sender,
+                        player_id
+                    )?,
                 )
                 .await;
                 match player_choice {
@@ -520,7 +522,7 @@ impl Qafoon {
             if let Some(highest_bet) = highest_bet_option {
                 let (name, team_id) = {
                     let highest_bettor: &mut Player =
-                        get_player_mut!(self.players, highest_bettor_id);
+                        get_player_mut!(self.players, highest_bettor_id)?;
                     let ground_card_codes: Vec<String> = code_cards(&ground_cards);
                     highest_bettor.add_cards(ground_cards.clone())?;
                     let player_name: String = highest_bettor.name.clone();
@@ -551,12 +553,12 @@ impl Qafoon {
         def_team_id: TeamId,
         bet: usize,
     ) -> Result<()> {
-        let off_team: &mut Team = get_team_mut!(self.teams, off_team_id);
+        let off_team: &mut Team = get_team_mut!(self.teams, off_team_id)?;
         let round_winner: String = if off_team.collected_hands.len() == bet {
             off_team.score += if bet == HIGHEST_BET { bet * 2 } else { bet };
             off_team
         } else {
-            let def_team: &mut Team = get_team_mut!(self.teams, def_team_id);
+            let def_team: &mut Team = get_team_mut!(self.teams, def_team_id)?;
             def_team.score += bet * 2;
             def_team
         }
@@ -583,8 +585,8 @@ impl Qafoon {
         def_team_id: TeamId,
         bet: usize,
     ) -> Result<bool> {
-        let off_team: &Team = get_team!(self.teams, off_team_id);
-        let def_team: &Team = get_team!(self.teams, def_team_id);
+        let off_team: &Team = get_team!(self.teams, off_team_id)?;
+        let def_team: &Team = get_team!(self.teams, def_team_id)?;
         Ok(off_team.collected_hands.len() < bet && def_team.collected_hands.len() < (14 - bet))
     }
 
@@ -643,20 +645,20 @@ impl Qafoon {
         let is_round_starter: bool = self.ground.cards.is_empty();
         let mut message: GameMessage = GameMessage::demand(DemandMessage::PlayCard);
         loop {
-            let player: &mut Player = get_player_mut!(self.players, player_id);
+            let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_name: String = player.name.clone();
             let player_choice: Result<PlayerChoice> = get_player_choice(
                 player,
                 &mut message,
                 false,
                 0,
-                get_player_communication!(self, player_id),
+                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
             )
             .await;
             match player_choice {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     if !is_round_starter {
-                        let has_matching_card: bool = get_player!(self.players, player_id)
+                        let has_matching_card: bool = get_player!(self.players, player_id)?
                             .hand
                             .iter()
                             .any(|player_card: &Card| player_card.type_ == self.ground.type_);
@@ -668,7 +670,7 @@ impl Qafoon {
                             continue;
                         }
                     }
-                    let player: &mut Player = get_player_mut!(self.players, player_id);
+                    let player: &mut Player = get_player_mut!(self.players, player_id)?;
                     player.remove_card(&player_choice).ok();
                     let card_code: String = player_choice.code();
                     self.ground.add_card(player_id, player_choice)?;
@@ -692,24 +694,24 @@ impl Qafoon {
     async fn do_team_selection(&mut self) -> Result<()> {
         for player_id in self.get_player_ids() {
             let team_id: TeamId = self.assign_player_to_team(player_id).await?;
-            get_player_mut!(self.players, player_id).team_id = team_id;
+            get_player_mut!(self.players, player_id)?.team_id = team_id;
         }
         Ok(())
     }
 
     async fn assign_player_to_team(&mut self, player_id: PlayerId) -> Result<TeamId> {
         let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
-        let player: &mut Player = get_player_mut!(self.players, player_id);
+        let player: &mut Player = get_player_mut!(self.players, player_id)?;
         let player_name: String = player.name.clone();
         match get_player_team_choice(
             player,
             available_teams,
-            get_player_communication!(self, player_id),
+            get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
         )
         .await
         {
             Ok(team_id) => {
-                get_team_mut!(self.teams, team_id).players.push(player_id);
+                get_team_mut!(self.teams, team_id)?.players.push(player_id);
                 Ok(team_id)
             }
             _ => {
