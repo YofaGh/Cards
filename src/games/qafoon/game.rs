@@ -171,7 +171,7 @@ impl Game for Qafoon {
     }
 
     fn get_field(&self) -> Vec<PlayerId> {
-        self.field.iter().copied().collect()
+        self.field.to_vec()
     }
 
     fn is_full(&self) -> bool {
