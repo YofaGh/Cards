@@ -112,7 +112,7 @@ impl Game for Qafoon {
                                             }
                                         }
                                     };
-                                    let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, &player_id).await;
+                                    let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, player_id).await;
                                 }
                                 _ => {
                                     let _ = sender.try_send(message);
@@ -127,20 +127,20 @@ impl Game for Qafoon {
         Ok(handle)
     }
 
-    fn get_player_sender(&self, player_id: &PlayerId) -> Result<&Sender<CorrelatedMessage>> {
+    fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>> {
         self.players_sender
-            .get(player_id)
-            .ok_or(Error::player_not_found(*player_id))
+            .get(&player_id)
+            .ok_or(Error::player_not_found(player_id))
     }
 
-    fn remove_player_connection(&mut self, player_id: &PlayerId) -> Option<PlayerConnection> {
-        self.player_connections.remove(player_id)
+    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection> {
+        self.player_connections.remove(&player_id)
     }
 
-    fn remove_player(&mut self, player_id: &PlayerId) {
-        self.players.remove(player_id);
-        self.players_receiver.remove(player_id);
-        self.players_sender.remove(player_id);
+    fn remove_player(&mut self, player_id: PlayerId) {
+        self.players.remove(&player_id);
+        self.players_receiver.remove(&player_id);
+        self.players_sender.remove(&player_id);
     }
 
     async fn update_shared_state(&self) -> Result<()> {
@@ -258,11 +258,11 @@ impl Qafoon {
         self.broadcast_message(BroadcastMessage::HandingOutCards)
             .await?;
         let cards_per_player: usize = self.cards.len() / NUMBER_OF_PLAYERS;
-        let field_copied: Vec<PlayerId> = self.field.clone();
-        for (i, player_id) in field_copied.iter().enumerate() {
-            let player: &mut Player = get_player_mut!(self.players, *player_id);
-            let player_cards: Vec<Card> =
-                self.cards[i * cards_per_player..(i + 1) * cards_per_player].to_vec();
+        let round_starter_index: usize = self.get_bettor_starter_index()?;
+        for index in 0..NUMBER_OF_PLAYERS {
+            let player_id: PlayerId = self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
+            let player: &mut Player = get_player_mut!(self.players, player_id);
+            let player_cards: Vec<Card> = self.cards.drain(0..cards_per_player).collect();
             player.set_cards(player_cards)?;
             let player_name: String = player.name.clone();
             let message: GameMessage = GameMessage::Cards {
@@ -287,7 +287,7 @@ impl Qafoon {
                 .ok_or(Error::Other(
                     "team with highest score was not found".to_owned(),
                 ))?;
-            let starter_team_id: PlayerId = get_player!(self.players, self.starter).team_id;
+            let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
             if starter_team_id != team_with_highest_score_id {
                 let index: usize = self
                     .field
@@ -330,7 +330,7 @@ impl Qafoon {
                     folded_cards.push(player_choice);
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
                     if let Err(Error::Tcp(_)) =
-                        self.send_message_to_player(&player_id, message).await
+                        self.send_message_to_player(player_id, message).await
                     {
                         self.end_game(format!("Player {player_name} left")).await?;
                     }
@@ -441,6 +441,36 @@ impl Qafoon {
         Ok(())
     }
 
+    fn get_bettor_starter_index(&self) -> Result<usize> {
+        if self.starter.is_nil() {
+            return Ok(0);
+        }
+        let team_with_highest_score_id: TeamId = self
+            .teams
+            .values()
+            .max_by_key(|team: &&Team| team.score)
+            .map(|team: &Team| team.id)
+            .ok_or(Error::Other(
+                "team with highest score was not found".to_owned(),
+            ))?;
+        let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
+        if starter_team_id == team_with_highest_score_id {
+            self.field
+                .iter()
+                .find_position(|player_id: &&PlayerId| **player_id == self.starter)
+                .map(|(index, _)| index)
+                .ok_or(Error::player_not_found(self.starter))
+        } else {
+            let index: usize = self
+                .field
+                .iter()
+                .find_position(|player_id: &&PlayerId| **player_id == self.starter)
+                .map(|(index, _)| index)
+                .ok_or(Error::player_not_found(self.starter))?;
+            return Ok((index + 1) % self.field.len());
+        }
+    }
+
     async fn start_betting(
         &mut self,
         ground_cards: Vec<Card>,
@@ -448,8 +478,11 @@ impl Qafoon {
         let mut highest_bet_option: Option<usize> = None;
         let mut highest_bettor_id: PlayerId = PlayerId::nil();
         let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
+        let round_starter_index: usize = self.get_bettor_starter_index()?;
         loop {
-            for player_id in self.field.clone().into_iter() {
+            for index in 0..NUMBER_OF_PLAYERS {
+                let player_id: PlayerId =
+                    self.field[(round_starter_index + index) % NUMBER_OF_PLAYERS];
                 let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
                 let player: &mut Player = get_player_mut!(self.players, player_id);
                 let player_name: String = player.name.clone();
@@ -496,7 +529,7 @@ impl Qafoon {
                         ground_cards: ground_card_codes,
                     };
                     if let Err(Error::Tcp(_)) = self
-                        .send_message_to_player(&highest_bettor_id, message)
+                        .send_message_to_player(highest_bettor_id, message)
                         .await
                     {
                         self.end_game(format!("Player {player_name} left")).await?;
@@ -576,7 +609,7 @@ impl Qafoon {
         })
         .await?;
         for player_id in self.get_player_ids() {
-            self.close_player_connection(&player_id).await?;
+            self.close_player_connection(player_id).await?;
         }
         self.set_status(GameStatus::Finished);
         Ok(())
@@ -641,7 +674,7 @@ impl Qafoon {
                     self.ground.add_card(player_id, player_choice)?;
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
                     if let Err(Error::Tcp(_)) =
-                        self.send_message_to_player(&player_id, message).await
+                        self.send_message_to_player(player_id, message).await
                     {
                         self.end_game(format!("Player {player_name} left")).await?;
                     } else {

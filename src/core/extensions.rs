@@ -39,7 +39,7 @@ pub fn read_file(path: impl AsRef<std::path::Path>) -> Result<Vec<u8>> {
 pub async fn send_message_to_player(
     sender: &tokio::sync::mpsc::Sender<CorrelatedMessage>,
     message: GameMessage,
-    player_id: &PlayerId,
+    player_id: PlayerId,
 ) -> Result<()> {
     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
     let correlated_message: CorrelatedMessage = CorrelatedMessage {

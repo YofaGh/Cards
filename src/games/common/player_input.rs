@@ -16,7 +16,7 @@ pub async fn get_player_choice(
     let player_name: String = player.name.clone();
     let operation = async {
         loop {
-            send_message_to_player(sender, message.clone(), &player.id).await?;
+            send_message_to_player(sender, message.clone(), player.id).await?;
             match receiver.recv().await {
                 Some(GameMessage::PlayerChoice { choice }) => {
                     if choice == "pass" {
@@ -80,7 +80,7 @@ pub async fn get_player_team_choice(
     );
     let operation = async {
         loop {
-            send_message_to_player(sender, message.clone(), &player.id).await?;
+            send_message_to_player(sender, message.clone(), player.id).await?;
             match receiver.recv().await {
                 Some(GameMessage::PlayerChoice { choice }) => {
                     if let Some((team_id, _)) =

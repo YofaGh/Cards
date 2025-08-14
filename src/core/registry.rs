@@ -170,7 +170,7 @@ impl GameRegistry {
                                     .collect();
                                 for (player_id, player_name) in player_ids {
                                     if let Err(err) =
-                                        game_guard.close_player_connection(&player_id).await
+                                        game_guard.close_player_connection(player_id).await
                                     {
                                         eprintln!(
                                             "Failed to close connection for player {player_name}: {err}",

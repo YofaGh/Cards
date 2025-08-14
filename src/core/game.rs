@@ -26,9 +26,9 @@ pub trait Game: Send + Sync {
     async fn start(&mut self) -> Result<()>;
     async fn setup_teams(&mut self) -> Result<()>;
     async fn update_shared_state(&self) -> Result<()>;
-    fn get_player_sender(&self, player_id: &PlayerId) -> Result<&Sender<CorrelatedMessage>>;
-    fn remove_player_connection(&mut self, player_id: &PlayerId) -> Option<PlayerConnection>;
-    fn remove_player(&mut self, player_id: &PlayerId);
+    fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
+    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection>;
+    fn remove_player(&mut self, player_id: PlayerId);
     fn setup_receiver(
         &self,
         player_id: PlayerId,
@@ -49,7 +49,7 @@ pub trait Game: Send + Sync {
     }
     async fn send_message_to_player(
         &self,
-        player_id: &PlayerId,
+        player_id: PlayerId,
         message: GameMessage,
     ) -> Result<()> {
         send_message_to_player(self.get_player_sender(player_id)?, message, player_id).await
@@ -94,7 +94,7 @@ pub trait Game: Send + Sync {
         let player_info: Vec<(PlayerId, String, Sender<CorrelatedMessage>)> = infos
             .into_iter()
             .filter_map(|(player_id, player_name)| {
-                if let Ok(sender) = self.get_player_sender(&player_id) {
+                if let Ok(sender) = self.get_player_sender(player_id) {
                     return Some((player_id, player_name, sender.clone()));
                 }
                 None
@@ -105,7 +105,7 @@ pub trait Game: Send + Sync {
             .map(|(player_id, player_name, sender)| {
                 let game_message: GameMessage = game_message.clone();
                 async move {
-                    if send_message_to_player(&sender, game_message, &player_id)
+                    if send_message_to_player(&sender, game_message, player_id)
                         .await
                         .is_err()
                     {
@@ -127,7 +127,7 @@ pub trait Game: Send + Sync {
         let reason: String = format!("Failed to send message to {}", failed_players.join(", "));
         self.end_game(reason).await
     }
-    async fn close_player_connection(&mut self, player_id: &PlayerId) -> Result<()> {
+    async fn close_player_connection(&mut self, player_id: PlayerId) -> Result<()> {
         if let Some(connection) = self.remove_player_connection(player_id) {
             let _ = connection.reader_shutdown_tx.send(());
             let _ = connection.writer_shutdown_tx.send(());
@@ -163,7 +163,7 @@ pub trait Game: Send + Sync {
             .await
             .ok();
         for player_id in self.get_player_ids() {
-            self.close_player_connection(&player_id).await.ok();
+            self.close_player_connection(player_id).await.ok();
         }
         self.set_status(GameStatus::Ended);
         Err(Error::Other("Game ended".to_string()))
