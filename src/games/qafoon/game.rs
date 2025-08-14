@@ -8,7 +8,8 @@ use tokio::{
 use crate::{
     core::{send_message_to_player, Game},
     games::*,
-    get_player, get_player_communication, get_player_mut, get_team, get_team_mut,
+    get_player, get_player_communication, get_player_field_index, get_player_mut, get_team,
+    get_team_mut,
     models::*,
     network::protocol::receive_message_halved,
     prelude::*,
@@ -298,12 +299,7 @@ impl Qafoon {
                 ))?;
             let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
             if starter_team_id != team_with_highest_score_id {
-                let index: usize = self
-                    .field
-                    .iter()
-                    .find_position(|player_id: &&PlayerId| **player_id == self.starter)
-                    .map(|(index, _)| index)
-                    .ok_or(Error::player_not_found(self.starter))?;
+                let index: usize = get_player_field_index!(self.field, self.starter)?;
                 self.starter = self.field[(index + 1) % self.field.len()];
             }
         }
@@ -463,20 +459,11 @@ impl Qafoon {
                 "team with highest score was not found".to_owned(),
             ))?;
         let starter_team_id: TeamId = get_player!(self.players, self.starter).team_id;
+        let starter_index: Result<usize> = get_player_field_index!(self.field, self.starter);
         if starter_team_id == team_with_highest_score_id {
-            self.field
-                .iter()
-                .find_position(|player_id: &&PlayerId| **player_id == self.starter)
-                .map(|(index, _)| index)
-                .ok_or(Error::player_not_found(self.starter))
+            starter_index
         } else {
-            let index: usize = self
-                .field
-                .iter()
-                .find_position(|player_id: &&PlayerId| **player_id == self.starter)
-                .map(|(index, _)| index)
-                .ok_or(Error::player_not_found(self.starter))?;
-            return Ok((index + 1) % self.field.len());
+            Ok((starter_index? + 1) % self.field.len())
         }
     }
 
@@ -760,12 +747,8 @@ impl Qafoon {
                     teams_score: self.get_teams_round_score(),
                 })
                 .await?;
-                let round_starter_index: usize = self
-                    .field
-                    .iter()
-                    .find_position(|player_id: &&PlayerId| **player_id == round_starter_id)
-                    .map(|(index, _)| index)
-                    .ok_or(Error::player_not_found(round_starter_id))?;
+                let round_starter_index: usize =
+                    get_player_field_index!(self.field, round_starter_id)?;
                 for (index, player_id) in self
                     .get_field()
                     .into_iter()
