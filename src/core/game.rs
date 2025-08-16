@@ -24,7 +24,7 @@ pub trait Game: Send + Sync {
     fn generate_cards(&mut self) -> Result<()>;
     fn set_status(&mut self, status: GameStatus);
     fn get_field(&self) -> Vec<PlayerId>;
-    async fn start(&mut self) -> Result<()>;
+    async fn run_game(&mut self) -> Result<()>;
     async fn setup_teams(&mut self) -> Result<()>;
     async fn update_shared_state(&self) -> Result<()>;
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
@@ -158,6 +158,12 @@ pub trait Game: Send + Sync {
         }
         self.remove_player(player_id);
         Ok(())
+    }
+    async fn start_game(&mut self) -> Result<()> {
+        self.setup_teams().await?;
+        self.broadcast_message(BroadcastMessage::GameStarting)
+            .await?;
+        self.run_game().await
     }
     async fn end_game(&mut self, reason: String) -> Result<()> {
         self._broadcast_message(BroadcastMessage::GameCancelled { reason })

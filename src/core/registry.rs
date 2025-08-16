@@ -119,20 +119,9 @@ impl GameRegistry {
         game_id: GameId,
         registry: GameRegistry,
     ) -> Result<()> {
-        {
-            let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
-            if let Err(err) = game.setup_teams().await {
-                eprintln!("Team selection failed for game {game_id}: {err}");
-                game.broadcast_message(BroadcastMessage::GameCancelled {
-                    reason: "Team selection failed".to_string(),
-                })
-                .await?;
-                return Err(err);
-            }
-            if let Err(err) = game.start().await {
-                eprintln!("Game {game_id} failed to start: {err}");
-                return Err(err);
-            }
+        if let Err(err) = game_arc.lock().await.start_game().await {
+            eprintln!("Game {game_id} failed: {err}");
+            return Err(err);
         }
         registry.remove_game(game_id).await?;
         Ok(())

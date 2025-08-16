@@ -205,10 +205,63 @@ impl Game for Qafoon {
         Ok(())
     }
 
-    async fn start(&mut self) -> Result<()> {
-        self.broadcast_message(BroadcastMessage::GameStarting)
+    async fn run_game(&mut self) -> Result<()> {
+        self.set_status(GameStatus::Started);
+        self.generate_field()?;
+        self.update_shared_state().await?;
+        shuffle(&mut self.cards, ShuffleMethod::Hard);
+        while self.should_continue_game()? {
+            self.broadcast_message(BroadcastMessage::GameScore {
+                teams_score: self.get_teams_game_score(),
+            })
             .await?;
-        self.run_game().await
+            self.broadcast_message(BroadcastMessage::ShufflingCards)
+                .await?;
+            shuffle(&mut self.cards, ShuffleMethod::Riffle);
+            let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
+            self.hand_out_cards().await?;
+            let (highest_bet, highest_bettor_id, off_team_id) =
+                self.start_betting(ground_cards).await?;
+            self.set_starter(highest_bettor_id, highest_bet).await?;
+            let mut round_starter_id: PlayerId = self.starter;
+            self.fold_first(highest_bettor_id).await?;
+            self.set_hokm(highest_bettor_id, highest_bet).await?;
+            self.update_shared_state().await?;
+            let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
+            while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
+                self.broadcast_message(BroadcastMessage::RoundScore {
+                    teams_score: self.get_teams_round_score(),
+                })
+                .await?;
+                let round_starter_index: usize =
+                    get_player_field_index!(self.field, round_starter_id)?;
+                for (index, player_id) in self
+                    .get_field()
+                    .into_iter()
+                    .cycle()
+                    .skip(round_starter_index)
+                    .take(NUMBER_OF_PLAYERS)
+                    .enumerate()
+                {
+                    if index > 0 {
+                        self.broadcast_message(BroadcastMessage::GroundCards {
+                            ground_cards: self.get_ground_cards()?,
+                        })
+                        .await?;
+                    }
+                    self.play_card(player_id).await?;
+                    self.update_shared_state().await?;
+                }
+                round_starter_id = self.get_hand_collector_id()?;
+                self.collect_hand(round_starter_id)?;
+                self.update_shared_state().await?;
+            }
+            self.finish_round(off_team_id, def_team_id, highest_bet)
+                .await?;
+            self.update_shared_state().await?;
+            self.prepare_next_round()?;
+        }
+        self.finish_game().await
     }
 }
 
@@ -719,64 +772,5 @@ impl Qafoon {
                 Err(Error::Other("Failed to assign player to team".to_string()))
             }
         }
-    }
-
-    async fn run_game(&mut self) -> Result<()> {
-        self.set_status(GameStatus::Started);
-        self.generate_field()?;
-        self.update_shared_state().await?;
-        shuffle(&mut self.cards, ShuffleMethod::Hard);
-        while self.should_continue_game()? {
-            self.broadcast_message(BroadcastMessage::GameScore {
-                teams_score: self.get_teams_game_score(),
-            })
-            .await?;
-            self.broadcast_message(BroadcastMessage::ShufflingCards)
-                .await?;
-            shuffle(&mut self.cards, ShuffleMethod::Riffle);
-            let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
-            self.hand_out_cards().await?;
-            let (highest_bet, highest_bettor_id, off_team_id) =
-                self.start_betting(ground_cards).await?;
-            self.set_starter(highest_bettor_id, highest_bet).await?;
-            let mut round_starter_id: PlayerId = self.starter;
-            self.fold_first(highest_bettor_id).await?;
-            self.set_hokm(highest_bettor_id, highest_bet).await?;
-            self.update_shared_state().await?;
-            let def_team_id: TeamId = self.get_opposing_team_id(off_team_id)?;
-            while self.should_continue_round(off_team_id, def_team_id, highest_bet)? {
-                self.broadcast_message(BroadcastMessage::RoundScore {
-                    teams_score: self.get_teams_round_score(),
-                })
-                .await?;
-                let round_starter_index: usize =
-                    get_player_field_index!(self.field, round_starter_id)?;
-                for (index, player_id) in self
-                    .get_field()
-                    .into_iter()
-                    .cycle()
-                    .skip(round_starter_index)
-                    .take(NUMBER_OF_PLAYERS)
-                    .enumerate()
-                {
-                    if index > 0 {
-                        self.broadcast_message(BroadcastMessage::GroundCards {
-                            ground_cards: self.get_ground_cards()?,
-                        })
-                        .await?;
-                    }
-                    self.play_card(player_id).await?;
-                    self.update_shared_state().await?;
-                }
-                round_starter_id = self.get_hand_collector_id()?;
-                self.collect_hand(round_starter_id)?;
-                self.update_shared_state().await?;
-            }
-            self.finish_round(off_team_id, def_team_id, highest_bet)
-                .await?;
-            self.update_shared_state().await?;
-            self.prepare_next_round()?;
-        }
-        self.finish_game().await
     }
 }

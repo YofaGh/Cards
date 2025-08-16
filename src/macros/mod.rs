@@ -46,7 +46,6 @@ macro_rules! get_player_communication {
         let sender = $players_sender
             .get(&$player_id)
             .ok_or(Error::player_not_found($player_id));
-        
         match (receiver, sender) {
             (Ok(r), Ok(s)) => Ok((r, s)),
             (Err(e), _) | (_, Err(e)) => Err(e),
