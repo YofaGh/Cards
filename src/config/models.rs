@@ -29,6 +29,7 @@ pub struct TimeoutConfig {
     pub team_selection: Duration,
     pub player_choice: Duration,
     pub queue_cutoff: Duration,
+    pub game_duration: Duration,
 }
 
 #[derive(Debug)]

@@ -42,6 +42,10 @@ impl Config {
                     "QUEUE_CUTOFF_TIMEOUT",
                     DEFAULT_QUEUE_CUTOFF_TIMEOUT,
                 )?,
+                game_duration: get_env_var_as_duration(
+                    "GAME_DURATION_TIMEOUT",
+                    DEFAULT_GAME_DURATION_TIMEOUT,
+                )?,
             },
             database: DatabaseConfig {
                 url: env::var("DATABASE_URL").unwrap_or(DEFAULT_DATABASE_URL.to_string()),
