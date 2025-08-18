@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use tokio::{
     io::{AsyncWriteExt, ReadHalf, WriteHalf},
     sync::oneshot,
@@ -45,15 +43,18 @@ pub trait Game: Send + Sync {
     fn is_started(&self) -> bool {
         self.get_status() == &GameStatus::Started
     }
-    fn is_not_started(&self) -> bool {
-        self.get_status() == &GameStatus::NotStarted
-    }
     async fn send_message_to_player(
-        &self,
+        &mut self,
         player_id: PlayerId,
+        player_name: String,
         message: GameMessage,
     ) -> Result<()> {
-        send_message_to_player(self.get_player_sender(player_id)?, message, player_id).await
+        if let Err(Error::Tcp(_)) =
+            send_message_to_player(self.get_player_sender(player_id)?, message, player_id).await
+        {
+            return self.end_game(format!("Player {player_name} left")).await;
+        }
+        Ok(())
     }
     fn setup_sender(
         &self,

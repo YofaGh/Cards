@@ -331,9 +331,8 @@ impl Qafoon {
             let message: GameMessage = GameMessage::Cards {
                 player_cards: code_cards(&player.hand),
             };
-            if let Err(Error::Tcp(_)) = self.send_message_to_player(player_id, message).await {
-                self.end_game(format!("Player {player_name} left")).await?;
-            }
+            self.send_message_to_player(player_id, player_name, message)
+                .await?;
         }
         Ok(())
     }
@@ -387,11 +386,8 @@ impl Qafoon {
                     let card_code: String = player_choice.code();
                     folded_cards.push(player_choice);
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
-                    if let Err(Error::Tcp(_)) =
-                        self.send_message_to_player(player_id, message).await
-                    {
-                        self.end_game(format!("Player {player_name} left")).await?;
-                    }
+                    self.send_message_to_player(player_id, player_name, message)
+                        .await?;
                 }
                 Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
                 _ => {
@@ -583,12 +579,8 @@ impl Qafoon {
                     let message: GameMessage = GameMessage::AddGroundCards {
                         ground_cards: ground_card_codes,
                     };
-                    if let Err(Error::Tcp(_)) = self
-                        .send_message_to_player(highest_bettor_id, message)
-                        .await
-                    {
-                        self.end_game(format!("Player {player_name} left")).await?;
-                    }
+                    self.send_message_to_player(highest_bettor_id, player_name.clone(), message)
+                        .await?;
                     (player_name, team_id)
                 };
                 self.broadcast_message(BroadcastMessage::BetWinner {
@@ -728,13 +720,9 @@ impl Qafoon {
                     let card_code: String = player_choice.code();
                     self.ground.add_card(player_id, player_choice)?;
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
-                    if let Err(Error::Tcp(_)) =
-                        self.send_message_to_player(player_id, message).await
-                    {
-                        self.end_game(format!("Player {player_name} left")).await?;
-                    } else {
-                        return Ok(());
-                    }
+                    return self
+                        .send_message_to_player(player_id, player_name, message)
+                        .await;
                 }
                 Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
                 _ => {
