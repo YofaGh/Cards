@@ -8,8 +8,7 @@ use tokio::{
 use crate::{
     core::{send_message_to_player, Game},
     games::*,
-    get_player, get_player_communication, get_player_field_index, get_player_mut, get_team,
-    get_team_mut,
+    get_player, get_player_field_index, get_player_mut, get_team, get_team_mut,
     models::*,
     network::protocol::receive_message_halved,
     prelude::*,
@@ -138,6 +137,16 @@ impl Game for Qafoon {
         self.player_connections.remove(&player_id)
     }
 
+    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>> {
+        self.players_receiver
+            .get_mut(&player_id)
+            .ok_or(Error::player_not_found(player_id))
+    }
+
+    fn get_player(&self, player_id: PlayerId) -> Result<&Player> {
+        get_player!(self.players, player_id)
+    }
+
     fn remove_player(&mut self, player_id: PlayerId) {
         self.players.remove(&player_id);
         self.players_receiver.remove(&player_id);
@@ -176,6 +185,15 @@ impl Game for Qafoon {
 
     fn is_full(&self) -> bool {
         self.get_player_count() >= NUMBER_OF_PLAYERS
+    }
+
+    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>> {
+        self.teams
+            .values()
+            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
+            .collect()
     }
 
     fn get_status(&self) -> &GameStatus {
@@ -233,24 +251,23 @@ impl Game for Qafoon {
                     teams_score: self.get_teams_round_score(),
                 })
                 .await?;
+                self.broadcast_message(BroadcastMessage::EmptyGround)
+                    .await?;
                 let round_starter_index: usize =
                     get_player_field_index!(self.field, round_starter_id)?;
-                for (index, player_id) in self
+                for player_id in self
                     .get_field()
                     .into_iter()
                     .cycle()
                     .skip(round_starter_index)
                     .take(NUMBER_OF_PLAYERS)
-                    .enumerate()
                 {
-                    if index > 0 {
-                        self.broadcast_message(BroadcastMessage::GroundCards {
-                            ground_cards: self.get_ground_cards()?,
-                        })
-                        .await?;
-                    }
                     self.play_card(player_id).await?;
                     self.update_shared_state().await?;
+                    self.broadcast_message(BroadcastMessage::GroundCards {
+                        ground_cards: self.get_ground_cards()?,
+                    })
+                    .await?;
                 }
                 round_starter_id = self.get_hand_collector_id()?;
                 self.collect_hand(round_starter_id)?;
@@ -272,15 +289,6 @@ impl Qafoon {
 
     pub fn boxed_new() -> BoxGame {
         Box::new(Qafoon::new())
-    }
-
-    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>> {
-        self.teams
-            .values()
-            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
-            .sorted_by_key(ToString::to_string)
-            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
-            .collect()
     }
 
     fn generate_teams(&mut self) -> Result<()> {
@@ -367,31 +375,33 @@ impl Qafoon {
         let mut folded_cards: Vec<Card> = Vec::new();
         let mut message: GameMessage = GameMessage::demand(DemandMessage::Fold);
         loop {
-            let player: &mut Player = get_player_mut!(self.players, player_id)?;
-            let player_name: String = player.name.clone();
-            if player.hand.len() <= 12 {
-                break;
+            {
+                let player: &mut Player = get_player_mut!(self.players, player_id)?;
+                if player.hand.len() <= 12 {
+                    break;
+                }
             }
-            let player_choice: Result<PlayerChoice> = get_player_choice(
-                player,
-                &mut message,
-                false,
-                0,
-                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
-            )
-            .await;
+            let player_choice: Result<PlayerChoice> = self
+                .get_player_choice(player_id, &mut message, false, 0)
+                .await;
             match player_choice {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
-                    player.remove_card(&player_choice).ok();
+                    let player_name: String = {
+                        let player: &mut Player = get_player_mut!(self.players, player_id)?;
+                        player.remove_card(&player_choice).ok();
+                        player.name.clone()
+                    };
                     let card_code: String = player_choice.code();
                     folded_cards.push(player_choice);
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };
                     self.send_message_to_player(player_id, player_name, message)
                         .await?;
                 }
-                Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
-                _ => {
+                Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
+                }
+                Err(err) => {
+                    return Err(Error::Other(format!("Error getting player choice: {err}")))
                 }
             }
         }
@@ -405,31 +415,26 @@ impl Qafoon {
         let hokms: &[Hokm] = if bet == HIGHEST_BET { &HOKMS } else { &TYPES };
         let mut message: GameMessage = GameMessage::demand(DemandMessage::Hokm);
         loop {
-            let player: &mut Player = get_player_mut!(self.players, player_id)?;
-            let player_name: String = player.name.clone();
-            let player_choice: Result<PlayerChoice> = get_player_choice(
-                player,
-                &mut message,
-                false,
-                hokms.len() - 1,
-                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
-            )
-            .await;
+            let player_choice: Result<PlayerChoice> = self
+                .get_player_choice(player_id, &mut message, false, hokms.len() - 1)
+                .await;
             match player_choice {
                 Ok(PlayerChoice::HokmChoice(player_choice)) => {
                     if hokms.contains(&player_choice) {
                         self.hokm = player_choice;
-                        self.broadcast_message(BroadcastMessage::Hokm {
-                            hokm: self.hokm.code(),
-                        })
-                        .await?;
-                        return Ok(());
+                        return self
+                            .broadcast_message(BroadcastMessage::Hokm {
+                                hokm: self.hokm.code(),
+                            })
+                            .await;
                     }
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
-                Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
-                _ => {
+                Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
+                }
+                Err(err) => {
+                    return Err(Error::Other(format!("Error getting player choice: {err}")))
                 }
             }
         }
@@ -531,23 +536,15 @@ impl Qafoon {
                 .take(NUMBER_OF_PLAYERS)
             {
                 let mut message: GameMessage = GameMessage::demand(DemandMessage::Bet);
-                let player: &mut Player = get_player_mut!(self.players, player_id)?;
-                let player_name: String = player.name.clone();
-                let player_choice: Result<PlayerChoice> = get_player_choice(
-                    player,
-                    &mut message,
-                    true,
-                    HIGHEST_BET,
-                    get_player_communication!(
-                        self.players_receiver,
-                        self.players_sender,
-                        player_id
-                    )?,
-                )
-                .await;
+                let player_choice: Result<PlayerChoice> = self
+                    .get_player_choice(player_id, &mut message, true, HIGHEST_BET)
+                    .await;
                 match player_choice {
                     Ok(choice) => {
-                        bets.push((player.name.clone(), choice.clone()));
+                        bets.push((
+                            get_player!(self.players, player_id)?.name.clone(),
+                            choice.clone(),
+                        ));
                         if let PlayerChoice::NumberChoice(choice) = choice {
                             if highest_bet_option
                                 .is_none_or(|highest_bet: usize| choice > highest_bet)
@@ -560,10 +557,9 @@ impl Qafoon {
                             }
                         }
                     }
-                    Err(Error::Tcp(_)) => {
-                        self.end_game(format!("Player {player_name} left")).await?
+                    Err(err) => {
+                        return Err(Error::Other(format!("Error getting player choice: {err}")))
                     }
-                    _ => message.set_demand_error(INVALID_RESPONSE.to_owned()),
                 }
                 self.broadcast_message(BroadcastMessage::Bets { bets: bets.clone() })
                     .await?;
@@ -692,14 +688,9 @@ impl Qafoon {
         loop {
             let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_name: String = player.name.clone();
-            let player_choice: Result<PlayerChoice> = get_player_choice(
-                player,
-                &mut message,
-                false,
-                0,
-                get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
-            )
-            .await;
+            let player_choice: Result<PlayerChoice> = self
+                .get_player_choice(player_id, &mut message, false, 0)
+                .await;
             match player_choice {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     if !is_round_starter {
@@ -724,9 +715,11 @@ impl Qafoon {
                         .send_message_to_player(player_id, player_name, message)
                         .await;
                 }
-                Err(Error::Tcp(_)) => self.end_game(format!("Player {player_name} left")).await?,
-                _ => {
+                Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
+                }
+                Err(err) => {
+                    return Err(Error::Other(format!("Error getting player choice: {err}")))
                 }
             }
         }
@@ -734,31 +727,10 @@ impl Qafoon {
 
     async fn do_team_selection(&mut self) -> Result<()> {
         for player_id in self.get_player_ids() {
-            let team_id: TeamId = self.assign_player_to_team(player_id).await?;
+            let team_id: TeamId = self.get_player_team_choice(player_id).await?;
+            get_team_mut!(self.teams, team_id)?.players.push(player_id);
             get_player_mut!(self.players, player_id)?.team_id = team_id;
         }
         Ok(())
-    }
-
-    async fn assign_player_to_team(&mut self, player_id: PlayerId) -> Result<TeamId> {
-        let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
-        let player: &mut Player = get_player_mut!(self.players, player_id)?;
-        let player_name: String = player.name.clone();
-        match get_player_team_choice(
-            player,
-            available_teams,
-            get_player_communication!(self.players_receiver, self.players_sender, player_id)?,
-        )
-        .await
-        {
-            Ok(team_id) => {
-                get_team_mut!(self.teams, team_id)?.players.push(player_id);
-                Ok(team_id)
-            }
-            _ => {
-                self.end_game(format!("Player {player_name} left")).await?;
-                Err(Error::Other("Failed to assign player to team".to_string()))
-            }
-        }
     }
 }

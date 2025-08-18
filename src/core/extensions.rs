@@ -57,3 +57,16 @@ pub async fn send_message_to_player(
         ))),
     }
 }
+
+pub async fn timed_choice<T>(
+    operation: impl std::future::Future<Output = Result<T>>,
+    player_name: String,
+) -> Result<T> {
+    let config: &'static crate::config::Config = crate::config::get_config();
+    if config.timeout.player_choice_enabled {
+        return tokio::time::timeout(config.timeout.player_choice, operation)
+            .await
+            .timeout_context(format!("Player {player_name} took too long to make choice"));
+    }
+    operation.await
+}

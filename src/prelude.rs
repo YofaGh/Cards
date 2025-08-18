@@ -6,7 +6,7 @@ pub use tokio::sync::mpsc::{Receiver, Sender};
 
 pub use crate::{
     config::{get_config, Config},
-    core::{types::*, GetOrError, TimeoutExt},
+    core::{types::*, GetOrError},
     errors::Error,
     models::enums::*,
 };

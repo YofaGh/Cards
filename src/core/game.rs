@@ -4,8 +4,9 @@ use tokio::{
     task::{JoinError, JoinHandle},
 };
 
+use super::{send_message_to_player, timed_choice};
 use crate::{
-    core::send_message_to_player,
+    games::INVALID_RESPONSE,
     models::{CorrelatedMessage, Player, PlayerConnection},
     prelude::*,
 };
@@ -14,6 +15,7 @@ use crate::{
 pub trait Game: Send + Sync {
     fn get_players(&mut self) -> Vec<&mut Player>;
     fn get_player_ids(&self) -> Vec<PlayerId>;
+    fn get_player(&self, player_id: PlayerId) -> Result<&Player>;
     fn add_player(&mut self, name: String, connection: Stream) -> Result<()>;
     fn get_player_count(&self) -> usize;
     fn is_full(&self) -> bool;
@@ -28,6 +30,8 @@ pub trait Game: Send + Sync {
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
     fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection>;
     fn remove_player(&mut self, player_id: PlayerId);
+    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>>;
+    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>>;
     fn setup_receiver(
         &self,
         player_id: PlayerId,
@@ -42,6 +46,121 @@ pub trait Game: Send + Sync {
     }
     fn is_started(&self) -> bool {
         self.get_status() == &GameStatus::Started
+    }
+    async fn receive_message_from_player(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<Option<GameMessage>> {
+        Ok(self.get_player_receiver(player_id)?.recv().await)
+    }
+    async fn get_player_choice(
+        &mut self,
+        player_id: PlayerId,
+        message: &mut GameMessage,
+        passable: bool,
+        max_value: usize,
+    ) -> Result<PlayerChoice> {
+        let player_name: String = self.get_player(player_id)?.name.clone();
+        let operation = async {
+            loop {
+                self.send_message_to_player(player_id, player_name.clone(), message.clone())
+                    .await?;
+                match self.receive_message_from_player(player_id).await? {
+                    Some(GameMessage::PlayerChoice { choice }) => {
+                        if choice == "pass" {
+                            if passable {
+                                return Ok(PlayerChoice::Pass);
+                            }
+                            message.set_demand_error("You can't pass this one".to_owned());
+                        } else if message.message_type() == "Hokm" {
+                            return Ok(PlayerChoice::HokmChoice(Hokm::from(choice)));
+                        } else if message.message_type() == "Bet" {
+                            if let Ok(choice) = choice.parse::<usize>() {
+                                if choice <= max_value {
+                                    return Ok(PlayerChoice::NumberChoice(choice));
+                                }
+                                message.set_demand_error(format!(
+                                    "Choice can't be greater than {max_value}"
+                                ));
+                            } else {
+                                message.set_demand_error(INVALID_RESPONSE.to_owned());
+                            }
+                        } else {
+                            match crate::models::Card::try_from(choice) {
+                                Ok(card) => {
+                                    if self.get_player(player_id)?.hand.contains(&card) {
+                                        return Ok(PlayerChoice::CardChoice(card));
+                                    }
+                                    message
+                                        .set_demand_error("You don't have this card!".to_owned());
+                                }
+                                Err(_) => message.set_demand_error(INVALID_RESPONSE.to_owned()),
+                            }
+                        }
+                    }
+                    Some(invalid) => {
+                        message.set_demand_error(format!(
+                            "Expected message type PlayerChoice, but received {}",
+                            invalid.message_type()
+                        ));
+                    }
+                    None => {
+                        return Err(Error::Tcp("Receiver was closed".to_string()));
+                    }
+                }
+            }
+        };
+        match timed_choice(operation, player_name.clone()).await {
+            Err(Error::Tcp(_)) => {
+                self.end_game(format!("Player {player_name} left")).await?;
+                Err(Error::Tcp("Player {player_name} left".to_string()))
+            }
+            other => other,
+        }
+    }
+    async fn get_player_team_choice(&mut self, player_id: PlayerId) -> Result<TeamId> {
+        let player_name: String = self.get_player(player_id)?.name.clone();
+        let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
+        let mut message: GameMessage = GameMessage::team(
+            available_teams
+                .iter()
+                .map(|(_, name)| name.clone())
+                .collect(),
+            String::new(),
+        );
+        let operation = async {
+            loop {
+                self.send_message_to_player(player_id, player_name.clone(), message.clone())
+                    .await?;
+                match self.receive_message_from_player(player_id).await? {
+                    Some(GameMessage::PlayerChoice { choice }) => {
+                        if let Some((team_id, _)) =
+                            available_teams.iter().find(|(_, name)| *name == choice)
+                        {
+                            return Ok(*team_id);
+                        } else {
+                            message.set_demand_error("Invalid team choice".to_owned());
+                        }
+                    }
+                    Some(invalid) => {
+                        message.set_demand_error(format!(
+                            "Expected PlayerChoice, got {}",
+                            invalid.message_type()
+                        ));
+                    }
+                    None => {
+                        return Err(Error::Tcp("Receiver was closed".to_string()));
+                    }
+                }
+            }
+        };
+        match timed_choice(operation, player_name.clone()).await {
+            Err(Error::Tcp(_)) => {
+                self.end_game(format!("Player {player_name} left")).await?;
+                Err(Error::Tcp("Player {player_name} left".to_string()))
+            }
+            other => other,
+        }
     }
     async fn send_message_to_player(
         &mut self,

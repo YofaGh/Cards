@@ -194,6 +194,7 @@ pub enum BroadcastMessage {
     ServerShutdown,
     QueueTimeout,
     TeamSelectionStarting,
+    EmptyGround,
     GameCancelled { reason: String },
     HandingOutCards,
     ShufflingCards,
