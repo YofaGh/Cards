@@ -13,25 +13,22 @@ use crate::{
 
 #[async_trait]
 pub trait Game: Send + Sync {
+    fn add_player(&mut self, name: String, connection: Stream) -> Result<()>;
+    fn generate_cards(&mut self) -> Result<()>;
+    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>>;
+    fn get_field(&self) -> Vec<PlayerId>;
     fn get_players(&mut self) -> Vec<&mut Player>;
     fn get_player_ids(&self) -> Vec<PlayerId>;
     fn get_player(&self, player_id: PlayerId) -> Result<&Player>;
-    fn add_player(&mut self, name: String, connection: Stream) -> Result<()>;
     fn get_player_count(&self) -> usize;
-    fn is_full(&self) -> bool;
     fn get_status(&self) -> &GameStatus;
-    fn initialize_game(&mut self) -> Result<()>;
-    fn generate_cards(&mut self) -> Result<()>;
-    fn set_status(&mut self, status: GameStatus);
-    fn get_field(&self) -> Vec<PlayerId>;
-    async fn run_game(&mut self) -> Result<()>;
-    async fn setup_teams(&mut self) -> Result<()>;
-    async fn update_shared_state(&self) -> Result<()>;
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
-    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection>;
-    fn remove_player(&mut self, player_id: PlayerId);
-    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>>;
     fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>>;
+    fn initialize_game(&mut self) -> Result<()>;
+    fn is_full(&self) -> bool;
+    fn remove_player(&mut self, player_id: PlayerId);
+    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection>;
+    fn set_status(&mut self, status: GameStatus);
     fn setup_receiver(
         &self,
         player_id: PlayerId,
@@ -40,19 +37,25 @@ pub trait Game: Send + Sync {
         req_sender: Sender<CorrelatedMessage>,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<JoinHandle<ReadHalf<Stream>>>;
+    async fn run_game(&mut self) -> Result<()>;
+    async fn setup_teams(&mut self) -> Result<()>;
+    async fn update_shared_state(&self) -> Result<()>;
 
     fn is_finished(&self) -> bool {
         self.get_status() == &GameStatus::Finished
     }
+
     fn is_started(&self) -> bool {
         self.get_status() == &GameStatus::Started
     }
+
     async fn receive_message_from_player(
         &mut self,
         player_id: PlayerId,
     ) -> Result<Option<GameMessage>> {
         Ok(self.get_player_receiver(player_id)?.recv().await)
     }
+
     async fn get_player_choice(
         &mut self,
         player_id: PlayerId,
@@ -118,6 +121,7 @@ pub trait Game: Send + Sync {
             other => other,
         }
     }
+
     async fn get_player_team_choice(&mut self, player_id: PlayerId) -> Result<TeamId> {
         let player_name: String = self.get_player(player_id)?.name.clone();
         let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
@@ -162,6 +166,7 @@ pub trait Game: Send + Sync {
             other => other,
         }
     }
+
     async fn send_message_to_player(
         &mut self,
         player_id: PlayerId,
@@ -175,6 +180,7 @@ pub trait Game: Send + Sync {
         }
         Ok(())
     }
+
     fn setup_sender(
         &self,
         writer: WriteHalf<Stream>,
@@ -205,6 +211,7 @@ pub trait Game: Send + Sync {
         });
         Ok(handle)
     }
+
     async fn _broadcast_message(&mut self, message: BroadcastMessage) -> Result<Vec<String>> {
         let game_message: GameMessage = GameMessage::Broadcast { message };
         let infos: Vec<(PlayerId, String)> = self
@@ -240,6 +247,7 @@ pub trait Game: Send + Sync {
         let failed_players: Vec<String> = results.into_iter().flatten().collect();
         Ok(failed_players)
     }
+
     async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
         let failed_players: Vec<String> = self._broadcast_message(message).await?;
         if failed_players.is_empty() {
@@ -248,6 +256,7 @@ pub trait Game: Send + Sync {
         let reason: String = format!("Failed to send message to {}", failed_players.join(", "));
         self.end_game(reason).await
     }
+
     async fn close_player_connection(&mut self, player_id: PlayerId) -> Result<()> {
         if let Some(connection) = self.remove_player_connection(player_id) {
             let _ = connection.reader_shutdown_tx.send(());
@@ -279,12 +288,14 @@ pub trait Game: Send + Sync {
         self.remove_player(player_id);
         Ok(())
     }
+
     async fn start_game(&mut self) -> Result<()> {
         self.setup_teams().await?;
         self.broadcast_message(BroadcastMessage::GameStarting)
             .await?;
         self.run_game().await
     }
+
     async fn end_game(&mut self, reason: String) -> Result<()> {
         self._broadcast_message(BroadcastMessage::GameCancelled { reason })
             .await

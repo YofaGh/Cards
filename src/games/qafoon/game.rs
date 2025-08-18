@@ -30,6 +30,102 @@ impl Game for Qafoon {
         self.players.keys().copied().collect()
     }
 
+    fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>> {
+        self.players_sender
+            .get(&player_id)
+            .ok_or(Error::player_not_found(player_id))
+    }
+
+    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection> {
+        self.player_connections.remove(&player_id)
+    }
+
+    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>> {
+        self.players_receiver
+            .get_mut(&player_id)
+            .ok_or(Error::player_not_found(player_id))
+    }
+
+    fn get_player(&self, player_id: PlayerId) -> Result<&Player> {
+        get_player!(self.players, player_id)
+    }
+
+    fn remove_player(&mut self, player_id: PlayerId) {
+        self.players.remove(&player_id);
+        self.players_receiver.remove(&player_id);
+        self.players_sender.remove(&player_id);
+    }
+
+    fn get_player_count(&self) -> usize {
+        self.players.len()
+    }
+
+    fn get_field(&self) -> Vec<PlayerId> {
+        self.field.to_vec()
+    }
+
+    fn is_full(&self) -> bool {
+        self.get_player_count() >= NUMBER_OF_PLAYERS
+    }
+
+    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>> {
+        self.teams
+            .values()
+            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
+            .collect()
+    }
+
+    fn get_status(&self) -> &GameStatus {
+        &self.status
+    }
+
+    fn set_status(&mut self, status: GameStatus) {
+        self.status = status;
+    }
+
+    fn initialize_game(&mut self) -> Result<()> {
+        if self.is_started() {
+            return Err(Error::Other("Game Already Started".to_owned()));
+        }
+        self.generate_teams()?;
+        self.generate_cards()?;
+        Ok(())
+    }
+
+    fn generate_cards(&mut self) -> Result<()> {
+        TYPES.iter().for_each(|type_: &Hokm| {
+            (0..NUMBERS.len()).for_each(|i: usize| {
+                self.cards
+                    .push(Card::new(type_.to_owned(), NUMBERS[i].to_owned(), i))
+            })
+        });
+        Ok(())
+    }
+
+    async fn update_shared_state(&self) -> Result<()> {
+        let mut state: tokio::sync::RwLockWriteGuard<GameSharedState> =
+            self.shared_state.write().await;
+        state.game_score = self.get_teams_game_score();
+        state.round_score = self.get_teams_round_score();
+        state.current_hokm = self.hokm.clone();
+        state.ground_cards = self.get_ground_cards().unwrap_or_default();
+        state.game_status = self.status.clone();
+        Ok(())
+    }
+
+    async fn setup_teams(&mut self) -> Result<()> {
+        self.broadcast_message(BroadcastMessage::TeamSelectionStarting)
+            .await?;
+        tokio::time::timeout(
+            get_config().timeout.team_selection,
+            self.do_team_selection(),
+        )
+        .await
+        .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
+    }
+
     fn add_player(&mut self, name: String, connection: Stream) -> Result<()> {
         if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
@@ -127,102 +223,6 @@ impl Game for Qafoon {
         Ok(handle)
     }
 
-    fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>> {
-        self.players_sender
-            .get(&player_id)
-            .ok_or(Error::player_not_found(player_id))
-    }
-
-    fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection> {
-        self.player_connections.remove(&player_id)
-    }
-
-    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>> {
-        self.players_receiver
-            .get_mut(&player_id)
-            .ok_or(Error::player_not_found(player_id))
-    }
-
-    fn get_player(&self, player_id: PlayerId) -> Result<&Player> {
-        get_player!(self.players, player_id)
-    }
-
-    fn remove_player(&mut self, player_id: PlayerId) {
-        self.players.remove(&player_id);
-        self.players_receiver.remove(&player_id);
-        self.players_sender.remove(&player_id);
-    }
-
-    async fn update_shared_state(&self) -> Result<()> {
-        let mut state: tokio::sync::RwLockWriteGuard<GameSharedState> =
-            self.shared_state.write().await;
-        state.game_score = self.get_teams_game_score();
-        state.round_score = self.get_teams_round_score();
-        state.current_hokm = self.hokm.clone();
-        state.ground_cards = self.get_ground_cards().unwrap_or_default();
-        state.game_status = self.status.clone();
-        Ok(())
-    }
-
-    async fn setup_teams(&mut self) -> Result<()> {
-        self.broadcast_message(BroadcastMessage::TeamSelectionStarting)
-            .await?;
-        tokio::time::timeout(
-            get_config().timeout.team_selection,
-            self.do_team_selection(),
-        )
-        .await
-        .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
-    }
-
-    fn get_player_count(&self) -> usize {
-        self.players.len()
-    }
-
-    fn get_field(&self) -> Vec<PlayerId> {
-        self.field.to_vec()
-    }
-
-    fn is_full(&self) -> bool {
-        self.get_player_count() >= NUMBER_OF_PLAYERS
-    }
-
-    fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>> {
-        self.teams
-            .values()
-            .filter(|team: &&Team| team.players.len() < TEAM_SIZE)
-            .sorted_by_key(ToString::to_string)
-            .map(|team: &Team| Ok((team.id, team.name.to_owned())))
-            .collect()
-    }
-
-    fn get_status(&self) -> &GameStatus {
-        &self.status
-    }
-
-    fn set_status(&mut self, status: GameStatus) {
-        self.status = status;
-    }
-
-    fn initialize_game(&mut self) -> Result<()> {
-        if self.is_started() {
-            return Err(Error::Other("Game Already Started".to_owned()));
-        }
-        self.generate_teams()?;
-        self.generate_cards()?;
-        Ok(())
-    }
-
-    fn generate_cards(&mut self) -> Result<()> {
-        TYPES.iter().for_each(|type_: &Hokm| {
-            (0..NUMBERS.len()).for_each(|i: usize| {
-                self.cards
-                    .push(Card::new(type_.to_owned(), NUMBERS[i].to_owned(), i))
-            })
-        });
-        Ok(())
-    }
-
     async fn run_game(&mut self) -> Result<()> {
         self.set_status(GameStatus::Started);
         self.generate_field()?;
@@ -305,6 +305,48 @@ impl Qafoon {
             (0..NUMBER_OF_TEAMS).for_each(|i: usize| self.field.push(teams[i].players[j]))
         });
         Ok(())
+    }
+
+    fn should_continue_round(
+        &self,
+        off_team_id: TeamId,
+        def_team_id: TeamId,
+        bet: usize,
+    ) -> Result<bool> {
+        let off_team: &Team = get_team!(self.teams, off_team_id)?;
+        let def_team: &Team = get_team!(self.teams, def_team_id)?;
+        Ok(off_team.collected_hands.len() < bet && def_team.collected_hands.len() < (14 - bet))
+    }
+
+    fn should_continue_game(&self) -> Result<bool> {
+        Ok(self
+            .teams
+            .values()
+            .all(|team: &Team| team.score < TARGET_SCORE))
+    }
+
+    fn get_opposing_team_id(&self, team_id: TeamId) -> Result<TeamId> {
+        Ok(*self
+            .teams
+            .keys()
+            .find(|opposing_team_id: &&TeamId| **opposing_team_id != team_id)
+            .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
+    }
+
+    fn get_teams_game_score(&self) -> Vec<(String, usize)> {
+        self.teams
+            .values()
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| (team.name.clone(), team.score))
+            .collect()
+    }
+
+    fn get_teams_round_score(&self) -> Vec<(String, usize)> {
+        self.teams
+            .values()
+            .sorted_by_key(ToString::to_string)
+            .map(|team: &Team| (team.name.clone(), team.collected_hands.len()))
+            .collect()
     }
 
     fn get_ground_cards(&self) -> Result<Vec<(String, String)>> {
@@ -620,24 +662,6 @@ impl Qafoon {
         Ok(())
     }
 
-    fn should_continue_round(
-        &self,
-        off_team_id: TeamId,
-        def_team_id: TeamId,
-        bet: usize,
-    ) -> Result<bool> {
-        let off_team: &Team = get_team!(self.teams, off_team_id)?;
-        let def_team: &Team = get_team!(self.teams, def_team_id)?;
-        Ok(off_team.collected_hands.len() < bet && def_team.collected_hands.len() < (14 - bet))
-    }
-
-    fn should_continue_game(&self) -> Result<bool> {
-        Ok(self
-            .teams
-            .values()
-            .all(|team: &Team| team.score < TARGET_SCORE))
-    }
-
     async fn finish_game(&mut self) -> Result<()> {
         let game_winner: &String = &self
             .teams
@@ -656,30 +680,6 @@ impl Qafoon {
         }
         self.set_status(GameStatus::Finished);
         Ok(())
-    }
-
-    fn get_opposing_team_id(&self, team_id: TeamId) -> Result<TeamId> {
-        Ok(*self
-            .teams
-            .keys()
-            .find(|opposing_team_id: &&TeamId| **opposing_team_id != team_id)
-            .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
-    }
-
-    fn get_teams_game_score(&self) -> Vec<(String, usize)> {
-        self.teams
-            .values()
-            .sorted_by_key(ToString::to_string)
-            .map(|team: &Team| (team.name.clone(), team.score))
-            .collect()
-    }
-
-    fn get_teams_round_score(&self) -> Vec<(String, usize)> {
-        self.teams
-            .values()
-            .sorted_by_key(ToString::to_string)
-            .map(|team: &Team| (team.name.clone(), team.collected_hands.len()))
-            .collect()
     }
 
     async fn play_card(&mut self, player_id: PlayerId) -> Result<()> {
