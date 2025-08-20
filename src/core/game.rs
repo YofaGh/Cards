@@ -115,7 +115,7 @@ pub trait Game: Send + Sync {
                         } else {
                             match crate::models::Card::try_from(choice) {
                                 Ok(card) => {
-                                    if self.get_player(player_id)?.hand.contains(&card) {
+                                    if self.get_player(player_id)?.cards.contains(&card) {
                                         return Ok(PlayerChoice::CardChoice(card));
                                     }
                                     message

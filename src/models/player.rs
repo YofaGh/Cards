@@ -6,32 +6,30 @@ pub struct Player {
     pub id: PlayerId,
     pub name: String,
     pub team_id: TeamId,
-    pub hand: Vec<Card>,
+    pub cards: Vec<Card>,
 }
 
 impl Player {
     pub fn new(name: String, id: PlayerId) -> Self {
-        Player {
+        Self {
             id,
             name,
             team_id: TeamId::nil(),
-            hand: Vec::new(),
+            cards: Vec::new(),
         }
     }
 
-    pub fn set_cards(&mut self, cards: Vec<Card>) -> Result<()> {
-        self.hand = cards;
-        Ok(())
+    pub fn set_cards(&mut self, cards: Vec<Card>) {
+        self.cards = cards;
     }
 
-    pub fn add_cards(&mut self, mut cards: Vec<Card>) -> Result<()> {
-        self.hand.append(&mut cards);
-        Ok(())
+    pub fn add_cards(&mut self, mut cards: Vec<Card>) {
+        self.cards.append(&mut cards);
     }
 
     pub fn remove_card(&mut self, card: &Card) -> Result<Card> {
-        if let Some(pos) = self.hand.iter().position(|c: &Card| c == card) {
-            Ok(self.hand.remove(pos))
+        if let Some(pos) = self.cards.iter().position(|c: &Card| c == card) {
+            Ok(self.cards.remove(pos))
         } else {
             Err(Error::NoValidCard)
         }

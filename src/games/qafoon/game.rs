@@ -408,10 +408,10 @@ impl Qafoon {
         {
             let player: &mut Player = get_player_mut!(self.players, player_id)?;
             let player_cards: Vec<Card> = self.cards.drain(0..cards_per_player).collect();
-            player.set_cards(player_cards)?;
+            player.set_cards(player_cards);
             let player_name: String = player.name.clone();
             let message: GameMessage = GameMessage::Cards {
-                player_cards: code_cards(&player.hand),
+                player_cards: code_cards(&player.cards),
             };
             self.send_message_to_player(player_id, player_name, message)
                 .await?;
@@ -451,7 +451,7 @@ impl Qafoon {
         loop {
             {
                 let player: &mut Player = get_player_mut!(self.players, player_id)?;
-                if player.hand.len() <= 12 {
+                if player.cards.len() <= 12 {
                     break;
                 }
             }
@@ -643,7 +643,7 @@ impl Qafoon {
                     let highest_bettor: &mut Player =
                         get_player_mut!(self.players, highest_bettor_id)?;
                     let ground_card_codes: Vec<String> = code_cards(&ground_cards);
-                    highest_bettor.add_cards(ground_cards.clone())?;
+                    highest_bettor.add_cards(ground_cards.clone());
                     let player_name: String = highest_bettor.name.clone();
                     let team_id: TeamId = highest_bettor.team_id;
                     let message: GameMessage = GameMessage::AddGroundCards {
@@ -686,11 +686,11 @@ impl Qafoon {
         self.teams.values_mut().for_each(|team: &mut Team| {
             team.collected_hands
                 .drain(..)
-                .for_each(|hand: Vec<Card>| self.cards.extend(hand));
+                .for_each(|cards: Vec<Card>| self.cards.extend(cards));
         });
         self.players
             .values_mut()
-            .for_each(|player: &mut Player| self.cards.append(&mut player.hand));
+            .for_each(|player: &mut Player| self.cards.append(&mut player.cards));
         Ok(())
     }
 
@@ -727,7 +727,7 @@ impl Qafoon {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     if !is_round_starter {
                         let has_matching_card: bool = get_player!(self.players, player_id)?
-                            .hand
+                            .cards
                             .iter()
                             .any(|player_card: &Card| player_card.type_ == self.ground.type_);
                         if has_matching_card && player_choice.type_ != self.ground.type_ {
