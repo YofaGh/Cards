@@ -93,7 +93,7 @@ fn riffle_shuffle<Item: Clone>(items: &mut Vec<Item>) {
             items.len() / 2 + rng.random_range(-2i32..=2).max(-(items.len() as i32 / 2)) as usize;
         let split_point: usize = split_point.clamp(1, items.len() - 1);
         let mut left_half: Vec<Item> = items.drain(..split_point).collect();
-        let mut right_half: Vec<Item> = items.drain(..).collect();
+        let mut right_half: Vec<Item> = std::mem::take(items);
         items.clear();
         let mut left_idx: usize = 0;
         let mut right_idx: usize = 0;
@@ -137,7 +137,7 @@ fn cut_shuffle<Item: Clone>(items: &mut Vec<Item>) {
     }
     let cut_point: usize = rand::rng().random_range(1..items.len());
     let bottom_half: Vec<Item> = items.drain(cut_point..).collect();
-    let top_half: Vec<Item> = items.drain(..).collect();
+    let top_half: Vec<Item> = std::mem::take(items);
     items.extend(bottom_half);
     items.extend(top_half);
 }
@@ -194,7 +194,7 @@ fn hindu_shuffle<Item: Clone>(items: &mut Vec<Item>) {
             for item in packet.into_iter().rev() {
                 result.push(item);
             }
-            if items.len() > 0 && rng.random_bool(0.3) {
+            if !items.is_empty() && rng.random_bool(0.3) {
                 result.extend(items.drain(..).rev());
             }
         }

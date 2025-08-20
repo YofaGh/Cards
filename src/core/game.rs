@@ -257,22 +257,20 @@ pub trait Game: Send + Sync {
                                         );
                                     }
                                 }
-                            } else {
-                                if self.get_player(reconnecting_player_id).is_ok() {
-                                    if let Err(e) = self
-                                        .reconnect_disconnected_player(
-                                            reconnecting_player_id,
-                                            stream,
-                                        )
-                                        .await
-                                    {
-                                        eprintln!(
-                                            "Failed to reconnect existing player {reconnecting_player_id}: {e}"
-                                        );
-                                    }
-                                } else {
-                                    let _ = close_connection(&mut stream).await;
+                            } else if self.get_player(reconnecting_player_id).is_ok() {
+                                if let Err(e) = self
+                                    .reconnect_disconnected_player(
+                                        reconnecting_player_id,
+                                        stream,
+                                    )
+                                    .await
+                                {
+                                    eprintln!(
+                                        "Failed to reconnect existing player {reconnecting_player_id}: {e}"
+                                    );
                                 }
+                            } else {
+                                let _ = close_connection(&mut stream).await;
                             }
                         }
                         None => break,

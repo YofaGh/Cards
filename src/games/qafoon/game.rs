@@ -37,7 +37,7 @@ impl Game for Qafoon {
     fn setup_reconnection(&mut self) -> Result<Sender<(PlayerId, Stream)>> {
         let (tx, rx) = mpsc::channel(1024);
         self.players_reconnection_receiver = Some(rx);
-        return Ok(tx);
+        Ok(tx)
     }
 
     fn get_reconnection_receiver(&mut self) -> Result<&mut Receiver<(PlayerId, Stream)>> {
@@ -314,9 +314,10 @@ impl Game for Qafoon {
 
 impl Qafoon {
     pub fn new() -> Self {
-        let mut game: Self = Self::default();
-        game.id = GameId::new_v4();
-        game
+        Self {
+            id: GameId::new_v4(),
+            ..Default::default()
+        }
     }
 
     pub fn boxed_new() -> BoxGame {

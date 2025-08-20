@@ -97,8 +97,7 @@ impl GameRegistry {
                             self.cleanup_failed_queue(&game_choice).await;
                         }
                         return Err(Error::Other(format!(
-                            "Failed to generate reconnection token: {}",
-                            e
+                            "Failed to generate reconnection token: {e}"
                         )));
                     }
                 };
@@ -115,8 +114,7 @@ impl GameRegistry {
                     self.cleanup_failed_queue(&game_choice).await;
                 }
                 return Err(Error::Other(format!(
-                    "Failed to send reconnection token: {}",
-                    e
+                    "Failed to send reconnection token: {e}"
                 )));
             }
             match game.add_player(player_id, username.clone(), connection) {
