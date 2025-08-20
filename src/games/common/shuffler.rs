@@ -26,21 +26,42 @@ fn hard_shuffle<Item>(items: &mut [Item]) {
 }
 
 fn riffle_shuffle<Item: Clone>(items: &mut Vec<Item>) {
+    if items.len() < 2 {
+        return;
+    }
     let mut rng: ThreadRng = rand::rng();
-    let random_iterations: i32 = rng.random_range(1..=3);
-    for _ in 0..random_iterations {
-        let start: usize = rng.random_range(0..items.len());
-        let end: usize = rng.random_range(0..items.len());
-        let (start, end) = if end < start {
-            (end, start)
-        } else {
-            (start, end)
-        };
-        let mut new_items: Vec<Item> = Vec::with_capacity(items.len());
-        new_items.extend_from_slice(&items[start..end]);
-        new_items.extend_from_slice(&items[..start]);
-        new_items.extend_from_slice(&items[end..]);
-        *items = new_items;
+    let iterations: i32 = rng.random_range(1..=2);
+    for _ in 0..iterations {
+        let split_point: usize =
+            items.len() / 2 + rng.random_range(-2i32..=2).max(-(items.len() as i32 / 2)) as usize;
+        let split_point: usize = split_point.clamp(1, items.len() - 1);
+        let mut left_half: Vec<Item> = items.drain(..split_point).collect();
+        let mut right_half: Vec<Item> = items.drain(..).collect();
+        items.clear();
+        let mut left_idx: usize = 0;
+        let mut right_idx: usize = 0;
+        while left_idx < left_half.len() || right_idx < right_half.len() {
+            let left_remaining: usize = left_half.len() - left_idx;
+            let right_remaining: usize = right_half.len() - right_idx;
+            if left_remaining == 0 {
+                items.extend(right_half.drain(right_idx..));
+                break;
+            }
+            if right_remaining == 0 {
+                items.extend(left_half.drain(left_idx..));
+                break;
+            }
+            let drop_count: usize = rng.random_range(1..=3);
+            if rng.random_bool(left_remaining as f64 / (left_remaining + right_remaining) as f64) {
+                let count: usize = drop_count.min(left_remaining);
+                items.extend(left_half.drain(left_idx..left_idx + count));
+                left_idx += count;
+            } else {
+                let count: usize = drop_count.min(right_remaining);
+                items.extend(right_half.drain(right_idx..right_idx + count));
+                right_idx += count;
+            }
+        }
     }
 }
 
@@ -49,44 +70,49 @@ fn cut_shuffle<Item: Clone>(items: &mut Vec<Item>) {
         return;
     }
     let cut_point: usize = rand::rng().random_range(1..items.len());
-    let mut new_items: Vec<Item> = Vec::with_capacity(items.len());
-    new_items.extend_from_slice(&items[cut_point..]);
-    new_items.extend_from_slice(&items[..cut_point]);
-    *items = new_items;
+    let bottom_half: Vec<Item> = items.drain(cut_point..).collect();
+    let top_half: Vec<Item> = items.drain(..).collect();
+    items.extend(bottom_half);
+    items.extend(top_half);
 }
 
-fn overhand_shuffle<Item>(items: &mut Vec<Item>) {
+fn overhand_shuffle<Item: Clone>(items: &mut Vec<Item>) {
     if items.len() < 3 {
         return;
     }
     let mut rng: ThreadRng = rand::rng();
-    let iterations: i32 = rng.random_range(3..=7);
+    let iterations: i32 = rng.random_range(3..=5);
     for _ in 0..iterations {
-        let packet_size: usize = rng.random_range(1..=items.len().min(10));
-        let start_pos: usize = rng.random_range(0..=(items.len() - packet_size));
-        let packet: Vec<Item> = items.drain(start_pos..start_pos + packet_size).collect();
-        let insert_pos: usize = rng.random_range(0..=items.len().min(3));
-        for (i, item) in packet.into_iter().enumerate() {
-            items.insert(insert_pos + i, item);
+        let mut shuffled: Vec<Item> = Vec::with_capacity(items.len());
+        while !items.is_empty() {
+            let packet_size: usize = rng.random_range(1..=5.min(items.len()));
+            let packet: Vec<Item> = items.drain(items.len() - packet_size..).collect();
+            for item in packet.into_iter().rev() {
+                shuffled.insert(0, item);
+            }
         }
+        *items = shuffled;
     }
 }
 
-fn hindu_shuffle<Item>(items: &mut Vec<Item>) {
+fn hindu_shuffle<Item: Clone>(items: &mut Vec<Item>) {
     if items.len() < 3 {
         return;
     }
     let mut rng: ThreadRng = rand::rng();
-    let iterations: i32 = rng.random_range(4..=8);
+    let iterations: i32 = rng.random_range(3..=6);
     for _ in 0..iterations {
-        let packet_size: usize = rng.random_range(2..=items.len().min(8));
-        let middle_start: usize = items.len() / 3;
-        let middle_end: usize = (items.len() * 2) / 3;
-        let start_pos: usize =
-            rng.random_range(middle_start..=(middle_end - packet_size).max(middle_start));
-        let packet: Vec<Item> = items.drain(start_pos..start_pos + packet_size).collect();
-        for (i, item) in packet.into_iter().enumerate() {
-            items.insert(i, item);
+        let mut result: Vec<Item> = Vec::with_capacity(items.len());
+        while !items.is_empty() {
+            let packet_size: usize = rng.random_range(2..=6.min(items.len()));
+            let packet: Vec<Item> = items.drain(..packet_size).collect();
+            for item in packet.into_iter().rev() {
+                result.push(item);
+            }
+            if items.len() > 0 && rng.random_bool(0.3) {
+                result.extend(items.drain(..).rev());
+            }
         }
+        *items = result;
     }
 }
