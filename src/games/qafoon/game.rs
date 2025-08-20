@@ -462,7 +462,7 @@ impl Qafoon {
                 Ok(PlayerChoice::CardChoice(player_choice)) => {
                     let player_name: String = {
                         let player: &mut Player = get_player_mut!(self.players, player_id)?;
-                        player.remove_card(&player_choice).ok();
+                        let _ = player.remove_card(&player_choice);
                         player.name.clone()
                     };
                     let card_code: String = player_choice.code();
@@ -739,7 +739,7 @@ impl Qafoon {
                         }
                     }
                     let player: &mut Player = get_player_mut!(self.players, player_id)?;
-                    player.remove_card(&player_choice).ok();
+                    let _ = player.remove_card(&player_choice);
                     let card_code: String = player_choice.code();
                     self.ground.add_card(player_id, player_choice)?;
                     let message: GameMessage = GameMessage::RemoveCard { card: card_code };

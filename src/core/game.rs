@@ -439,11 +439,11 @@ pub trait Game: Send + Sync {
     }
 
     async fn end_game(&mut self, reason: String) -> Result<()> {
-        self._broadcast_message(BroadcastMessage::GameCancelled { reason })
-            .await
-            .ok();
+        let _ = self
+            ._broadcast_message(BroadcastMessage::GameCancelled { reason })
+            .await;
         for player_id in self.get_player_ids() {
-            self.close_player_connection(player_id).await.ok();
+            let _ = self.close_player_connection(player_id).await;
         }
         self.clean_up();
         self.set_status(GameStatus::Ended);
