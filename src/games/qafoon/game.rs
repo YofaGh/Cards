@@ -265,7 +265,7 @@ impl Game for Qafoon {
             .await?;
             self.broadcast_message(BroadcastMessage::ShufflingCards)
                 .await?;
-            shuffle(&mut self.cards, ShuffleMethod::Riffle);
+            shuffle(&mut self.cards, ShuffleMethod::Overhand);
             let ground_cards: Vec<Card> = self.cards.drain(0..4).collect();
             self.hand_out_cards().await?;
             let (highest_bet, highest_bettor_id, off_team_id) =
