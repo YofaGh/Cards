@@ -1,22 +1,26 @@
 use tokio::{
     io::{AsyncWriteExt, ReadHalf, WriteHalf},
     sync::oneshot,
-    task::{JoinError, JoinHandle},
+    task::JoinHandle,
+    time::{timeout, Duration},
 };
 
 use super::{send_message_to_player, timed_choice};
 use crate::{
     games::INVALID_RESPONSE,
     models::{CorrelatedMessage, Player, PlayerConnection},
+    network::protocol::close_connection,
     prelude::*,
 };
 
 #[async_trait]
 pub trait Game: Send + Sync {
-    fn add_player(&mut self, name: String, connection: Stream) -> Result<()>;
+    fn add_player(&mut self, player_id: PlayerId, name: String, connection: Stream) -> Result<()>;
+    fn clean_up(&mut self);
     fn generate_cards(&mut self) -> Result<()>;
     fn get_available_teams(&self) -> Result<Vec<(TeamId, String)>>;
     fn get_field(&self) -> Vec<PlayerId>;
+    fn get_id(&self) -> GameId;
     fn get_players(&mut self) -> Vec<&mut Player>;
     fn get_player_ids(&self) -> Vec<PlayerId>;
     fn get_player(&self, player_id: PlayerId) -> Result<&Player>;
@@ -24,11 +28,14 @@ pub trait Game: Send + Sync {
     fn get_status(&self) -> &GameStatus;
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
     fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>>;
+    fn get_reconnection_receiver(&mut self) -> Result<&mut Receiver<(PlayerId, Stream)>>;
     fn initialize_game(&mut self) -> Result<()>;
     fn is_full(&self) -> bool;
-    fn remove_player(&mut self, player_id: PlayerId);
+    fn remove_player_channels(&mut self, player_id: PlayerId);
     fn remove_player_connection(&mut self, player_id: PlayerId) -> Option<PlayerConnection>;
     fn set_status(&mut self, status: GameStatus);
+    fn setup_reconnection(&mut self) -> Result<Sender<(PlayerId, Stream)>>;
+    fn setup_player_connection(&mut self, player_id: PlayerId, connection: Stream) -> Result<()>;
     fn setup_receiver(
         &self,
         player_id: PlayerId,
@@ -54,6 +61,23 @@ pub trait Game: Send + Sync {
         player_id: PlayerId,
     ) -> Result<Option<GameMessage>> {
         Ok(self.get_player_receiver(player_id)?.recv().await)
+    }
+
+    async fn reconnect_disconnected_player(
+        &mut self,
+        player_id: PlayerId,
+        connection: Stream,
+    ) -> Result<()> {
+        let _ = self.close_player_connection(player_id).await;
+        self.setup_player_connection(player_id, connection)
+    }
+
+    fn get_player_reconnection_timeout(&self) -> std::time::Duration {
+        get_config().timeout.player_reconnection
+    }
+
+    fn get_player_reconnection_max_retires(&self) -> usize {
+        get_config().timeout.player_reconnection_max_retries
     }
 
     async fn get_player_choice(
@@ -173,12 +197,106 @@ pub trait Game: Send + Sync {
         player_name: String,
         message: GameMessage,
     ) -> Result<()> {
-        if let Err(Error::Tcp(_)) =
-            send_message_to_player(self.get_player_sender(player_id)?, message, player_id).await
-        {
-            return self.end_game(format!("Player {player_name} left")).await;
+        let max_retries: usize = self.get_player_reconnection_max_retires();
+        let mut attempt: usize = 0;
+        loop {
+            let result: Result<()> = send_message_to_player(
+                self.get_player_sender(player_id)?,
+                message.clone(),
+                player_id,
+            )
+            .await;
+            if result.is_ok() {
+                return Ok(());
+            }
+            attempt += 1;
+            if attempt > max_retries {
+                return self
+                    .end_game(format!(
+                        "Player {player_name} failed after {attempt} attempts"
+                    ))
+                    .await;
+            }
+            tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
+            let mut rec: Vec<(PlayerId, String)> = vec![(player_id, player_name.clone())];
+            let _ = self.handle_player_reconnection(&mut rec).await;
+            if !rec.is_empty() {
+                return self
+                    .end_game(format!("Player {player_name} was disconnected"))
+                    .await;
+            }
         }
-        Ok(())
+    }
+
+    async fn handle_player_reconnection(
+        &mut self,
+        players_to_reconnect: &mut Vec<(PlayerId, String)>,
+    ) -> Result<()> {
+        if players_to_reconnect.is_empty() {
+            return Ok(());
+        }
+        let reconnection_result: Result<Result<()>, tokio::time::error::Elapsed> =
+            tokio::time::timeout(self.get_player_reconnection_timeout(), async {
+                while !players_to_reconnect.is_empty() {
+                    match self.get_reconnection_receiver()?.recv().await {
+                        Some((reconnecting_player_id, mut stream)) => {
+                            if let Some(pos) = players_to_reconnect
+                                .iter()
+                                .position(|(id, _)| *id == reconnecting_player_id)
+                            {
+                                match self
+                                    .reconnect_disconnected_player(reconnecting_player_id, stream)
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        players_to_reconnect.remove(pos);
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "Failed to reconnect player {reconnecting_player_id}: {e}"
+                                        );
+                                    }
+                                }
+                            } else {
+                                if self.get_player(reconnecting_player_id).is_ok() {
+                                    if let Err(e) = self
+                                        .reconnect_disconnected_player(
+                                            reconnecting_player_id,
+                                            stream,
+                                        )
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "Failed to reconnect existing player {reconnecting_player_id}: {e}"
+                                        );
+                                    }
+                                } else {
+                                    let _ = close_connection(&mut stream).await;
+                                }
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                Ok::<(), Error>(())
+            })
+            .await;
+        match reconnection_result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                let remaining_players: Vec<String> = players_to_reconnect
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect();
+                self.end_game(format!(
+                    "Players [{}] failed to reconnect within {:?}",
+                    remaining_players.join(", "),
+                    self.get_player_reconnection_timeout()
+                ))
+                .await
+            }
+        }
     }
 
     fn setup_sender(
@@ -212,7 +330,10 @@ pub trait Game: Send + Sync {
         Ok(handle)
     }
 
-    async fn _broadcast_message(&mut self, message: BroadcastMessage) -> Result<Vec<String>> {
+    async fn _broadcast_message(
+        &mut self,
+        message: BroadcastMessage,
+    ) -> Result<Vec<(PlayerId, String)>> {
         let game_message: GameMessage = GameMessage::Broadcast { message };
         let infos: Vec<(PlayerId, String)> = self
             .get_players()
@@ -237,55 +358,76 @@ pub trait Game: Send + Sync {
                         .await
                         .is_err()
                     {
-                        return Some(player_name);
+                        return Some((player_id, player_name));
                     }
                     None
                 }
             })
             .collect();
-        let results: Vec<Option<String>> = futures::future::join_all(send_futures).await;
-        let failed_players: Vec<String> = results.into_iter().flatten().collect();
+        let results: Vec<Option<(PlayerId, String)>> =
+            futures::future::join_all(send_futures).await;
+        let failed_players: Vec<(PlayerId, String)> = results.into_iter().flatten().collect();
         Ok(failed_players)
     }
 
     async fn broadcast_message(&mut self, message: BroadcastMessage) -> Result<()> {
-        let failed_players: Vec<String> = self._broadcast_message(message).await?;
-        if failed_players.is_empty() {
-            return Ok(());
+        let max_retries: usize = self.get_player_reconnection_max_retires();
+        let mut attempt: usize = 0;
+        loop {
+            let mut failed_players: Vec<(PlayerId, String)> =
+                self._broadcast_message(message.clone()).await?;
+            if failed_players.is_empty() {
+                return Ok(());
+            }
+            attempt += 1;
+            if attempt > max_retries {
+                return self
+                    .end_game(format!(
+                        "Players [{}] failed to reconnect after {} attempts",
+                        failed_players
+                            .iter()
+                            .map(|(_, name)| name.clone())
+                            .join(", "),
+                        attempt
+                    ))
+                    .await;
+            }
+            let _ = self.handle_player_reconnection(&mut failed_players).await;
+            if failed_players.is_empty() {
+                continue;
+            } else {
+                return self
+                    .end_game(format!(
+                        "Players [{}] failed to reconnect within 1 minute",
+                        failed_players
+                            .iter()
+                            .map(|(_, name)| name.clone())
+                            .join(", ")
+                    ))
+                    .await;
+            }
         }
-        let reason: String = format!("Failed to send message to {}", failed_players.join(", "));
-        self.end_game(reason).await
     }
 
     async fn close_player_connection(&mut self, player_id: PlayerId) -> Result<()> {
         if let Some(connection) = self.remove_player_connection(player_id) {
             let _ = connection.reader_shutdown_tx.send(());
             let _ = connection.writer_shutdown_tx.send(());
-            let reader_result: Result<ReadHalf<Stream>, JoinError> = connection.reader_handle.await;
-            let writer_result: Result<WriteHalf<Stream>, JoinError> =
-                connection.writer_handle.await;
-            match (reader_result, writer_result) {
-                (Ok(reader), Ok(writer)) => {
-                    let mut stream: Stream = reader.unsplit(writer);
-                    if let Err(err) = stream.shutdown().await {
+            match (
+                timeout(Duration::from_secs(5), connection.reader_handle).await,
+                timeout(Duration::from_secs(5), connection.writer_handle).await,
+            ) {
+                (Ok(Ok(reader)), Ok(Ok(writer))) => {
+                    if let Err(err) = reader.unsplit(writer).shutdown().await {
                         println!("Error shutting down stream for player {player_id:?}: {err:?}");
                     }
-                    println!("Successfully closed connection for player {player_id:?}");
                 }
-                (Err(err1), Err(err2)) => {
-                    println!(
-                        "Both tasks failed for player {player_id:?}: reader={err1:?}, writer={err2:?}"
-                    );
-                }
-                (Err(err), _) => {
-                    println!("Reader task failed for player {player_id:?}: {err:?}");
-                }
-                (_, Err(err)) => {
-                    println!("Writer task failed for player {player_id:?}: {err:?}");
+                _ => {
+                    println!("Timeout or error closing connection for player {player_id:?}");
                 }
             }
         }
-        self.remove_player(player_id);
+        self.remove_player_channels(player_id);
         Ok(())
     }
 
@@ -303,6 +445,7 @@ pub trait Game: Send + Sync {
         for player_id in self.get_player_ids() {
             self.close_player_connection(player_id).await.ok();
         }
+        self.clean_up();
         self.set_status(GameStatus::Ended);
         Err(Error::Other("Game ended".to_string()))
     }

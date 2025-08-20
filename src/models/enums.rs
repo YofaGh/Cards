@@ -119,6 +119,9 @@ pub enum GameMessage {
     GameSessionToken {
         token: String,
     },
+    ReconnectionToken {
+        token: String,
+    },
     PlayerChoice {
         choice: String,
     },
@@ -137,6 +140,7 @@ impl GameMessage {
             GameMessage::Cards { .. } => "Cards".to_string(),
             GameMessage::AddGroundCards { .. } => "AddGroundCards".to_string(),
             GameMessage::GameSessionToken { .. } => "GameSessionToken".to_string(),
+            GameMessage::ReconnectionToken { .. } => "ReconnectionToken".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
             GameMessage::PlayerRequest { .. } => "PlayerRequest".to_string(),

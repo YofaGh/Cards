@@ -10,9 +10,9 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, id: PlayerId) -> Self {
         Player {
-            id: PlayerId::new_v4(),
+            id,
             name,
             team_id: TeamId::nil(),
             hand: Vec::new(),

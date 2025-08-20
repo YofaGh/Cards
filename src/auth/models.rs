@@ -23,3 +23,17 @@ pub struct GameSessionClaims {
     pub exp: usize,
     pub iat: usize,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReconnectClaims {
+    pub sub: String,
+    pub game_id: String,
+    pub exp: usize,
+    pub iat: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SessionTokenType {
+    GameSession(GameSessionClaims),
+    Reconnection(ReconnectClaims),
+}

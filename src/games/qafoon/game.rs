@@ -30,6 +30,22 @@ impl Game for Qafoon {
         self.players.keys().copied().collect()
     }
 
+    fn get_id(&self) -> GameId {
+        self.id
+    }
+
+    fn setup_reconnection(&mut self) -> Result<Sender<(PlayerId, Stream)>> {
+        let (tx, rx) = mpsc::channel(1024);
+        self.players_reconnection_receiver = Some(rx);
+        return Ok(tx);
+    }
+
+    fn get_reconnection_receiver(&mut self) -> Result<&mut Receiver<(PlayerId, Stream)>> {
+        self.players_reconnection_receiver
+            .as_mut()
+            .ok_or_else(|| Error::Other("Reconnection receiver not initialized".to_string()))
+    }
+
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>> {
         self.players_sender
             .get(&player_id)
@@ -50,8 +66,7 @@ impl Game for Qafoon {
         get_player!(self.players, player_id)
     }
 
-    fn remove_player(&mut self, player_id: PlayerId) {
-        self.players.remove(&player_id);
+    fn remove_player_channels(&mut self, player_id: PlayerId) {
         self.players_receiver.remove(&player_id);
         self.players_sender.remove(&player_id);
     }
@@ -83,6 +98,16 @@ impl Game for Qafoon {
 
     fn set_status(&mut self, status: GameStatus) {
         self.status = status;
+    }
+
+    fn clean_up(&mut self) {
+        self.players.clear();
+        self.players_sender.clear();
+        self.players_receiver.clear();
+        self.player_connections.clear();
+        if let Some(receiver) = self.players_reconnection_receiver.take() {
+            drop(receiver);
+        }
     }
 
     fn initialize_game(&mut self) -> Result<()> {
@@ -126,29 +151,35 @@ impl Game for Qafoon {
         .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
     }
 
-    fn add_player(&mut self, name: String, connection: Stream) -> Result<()> {
+    fn add_player(&mut self, player_id: PlayerId, name: String, connection: Stream) -> Result<()> {
         if self.is_full() {
             return Err(Error::Other("Game is Full".to_owned()));
         }
+        self.setup_player_connection(player_id, connection)?;
+        let player: Player = Player::new(name, player_id);
+        self.players.insert(player.id, player);
+        Ok(())
+    }
+
+    fn setup_player_connection(&mut self, player_id: PlayerId, connection: Stream) -> Result<()> {
         let (reader, writer) = tokio::io::split(connection);
         let (shutdown_tx_reader, shutdown_rx_reader) = oneshot::channel();
         let (shutdown_tx_writer, shutdown_rx_writer) = oneshot::channel();
         let (s_sender, s_receiver) = mpsc::channel(1024);
         let (r_sender, r_receiver) = mpsc::channel(1024);
-        let player: Player = Player::new(name);
         let reader_handle: JoinHandle<ReadHalf<Stream>> = self.setup_receiver(
-            player.id,
+            player_id,
             reader,
             s_sender,
             r_sender.clone(),
             shutdown_rx_reader,
         )?;
-        self.players_receiver.insert(player.id, s_receiver);
+        self.players_receiver.insert(player_id, s_receiver);
         let writer_handle: JoinHandle<WriteHalf<Stream>> =
             self.setup_sender(writer, r_receiver, shutdown_rx_writer)?;
-        self.players_sender.insert(player.id, r_sender);
+        self.players_sender.insert(player_id, r_sender);
         self.player_connections.insert(
-            player.id,
+            player_id,
             PlayerConnection {
                 reader_handle,
                 writer_handle,
@@ -156,7 +187,6 @@ impl Game for Qafoon {
                 writer_shutdown_tx: shutdown_tx_writer,
             },
         );
-        self.players.insert(player.id, player);
         Ok(())
     }
 
@@ -284,7 +314,9 @@ impl Game for Qafoon {
 
 impl Qafoon {
     pub fn new() -> Self {
-        Qafoon::default()
+        let mut game: Self = Self::default();
+        game.id = GameId::new_v4();
+        game
     }
 
     pub fn boxed_new() -> BoxGame {

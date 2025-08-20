@@ -23,6 +23,7 @@ pub struct ActiveGame {
     pub created_at: SystemTime,
     pub started_at: SystemTime,
     pub timeout_at: Option<SystemTime>,
+    pub reconnection_sender: Sender<(PlayerId, Stream)>,
 }
 
 #[derive(Clone)]
@@ -71,7 +72,7 @@ impl GameRegistry {
         &self,
         username: String,
         game_choice: String,
-        connection: Stream,
+        mut connection: Stream,
     ) -> Result<()> {
         let game_arc: Arc<Mutex<BoxGame>> = self.get_or_create_queue(&game_choice).await?;
         let player_added: bool = {
@@ -82,7 +83,43 @@ impl GameRegistry {
                     return Err(err);
                 }
             }
-            match game.add_player(username.clone(), connection) {
+            let player_id: PlayerId = PlayerId::new_v4();
+            let game_id: GameId = game.get_id();
+            let reconnection_token: crate::auth::TokenPair =
+                match crate::auth::generate_reconnection_token(
+                    player_id.to_string(),
+                    game_id.to_string(),
+                ) {
+                    Ok(token) => token,
+                    Err(e) => {
+                        if game.get_player_count() == 0 {
+                            drop(game);
+                            self.cleanup_failed_queue(&game_choice).await;
+                        }
+                        return Err(Error::Other(format!(
+                            "Failed to generate reconnection token: {}",
+                            e
+                        )));
+                    }
+                };
+            if let Err(e) = crate::network::protocol::send_message(
+                &mut connection,
+                &GameMessage::ReconnectionToken {
+                    token: reconnection_token.access_token,
+                },
+            )
+            .await
+            {
+                if game.get_player_count() == 0 {
+                    drop(game);
+                    self.cleanup_failed_queue(&game_choice).await;
+                }
+                return Err(Error::Other(format!(
+                    "Failed to send reconnection token: {}",
+                    e
+                )));
+            }
+            match game.add_player(player_id, username.clone(), connection) {
                 Ok(_) => Ok(game.is_full()),
                 Err(err) => {
                     if game.get_player_count() == 0 {
@@ -99,6 +136,26 @@ impl GameRegistry {
         Ok(())
     }
 
+    pub async fn reconnect_player(
+        &self,
+        player_id: String,
+        game_id: String,
+        connection: Stream,
+    ) -> Result<()> {
+        if let Some(sender) = self
+            .get_active_game_sender(GameId::parse_str(&game_id)?)
+            .await
+        {
+            if let Err(err) = sender
+                .send((PlayerId::parse_str(&player_id)?, connection))
+                .await
+            {
+                return Err(Error::Other(format!("Failed to reconnect player: {err}")));
+            }
+        }
+        Ok(())
+    }
+
     async fn get_or_create_queue(&self, game_choice: &str) -> Result<Arc<Mutex<BoxGame>>> {
         let mut state: MutexGuard<RegistryState> = self.state.lock().await;
         if let Some(existing_queue) = state.game_queues.get(game_choice) {
@@ -110,10 +167,10 @@ impl GameRegistry {
                 }
             }
         }
-        self.create_new_queue_locked(&mut state, game_choice)
+        self.create_new_queue_locked(&mut state, game_choice).await
     }
 
-    fn create_new_queue_locked(
+    async fn create_new_queue_locked(
         &self,
         state: &mut RegistryState,
         game_choice: &str,
@@ -138,8 +195,12 @@ impl GameRegistry {
         game_choice: &str,
         game_arc: Arc<Mutex<BoxGame>>,
     ) -> Result<()> {
-        let game_id: GameId = GameId::new_v4();
+        let (game_id, reconnection_sender) = {
+            let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
+            (game.get_id(), game.setup_reconnection()?)
+        };
         let registry_clone: GameRegistry = self.clone();
+        let game_arc_clone: Arc<Mutex<BoxGame>> = game_arc.clone();
         {
             let mut state: MutexGuard<RegistryState> = self.state.lock().await;
             if let Some(queue) = state.game_queues.remove(game_choice) {
@@ -151,6 +212,7 @@ impl GameRegistry {
                     created_at: queue.created_at,
                     started_at: SystemTime::now(),
                     timeout_at: Some(timeout_at),
+                    reconnection_sender,
                 };
                 state.active_games.insert(game_id, active_game);
             } else {
@@ -160,9 +222,9 @@ impl GameRegistry {
             }
         }
         tokio::spawn(async move {
-            if let Err(err) =
-                Self::run_full_game_with_timeout(game_arc, game_id, registry_clone).await
-            {
+            let result: Result<()> =
+                Self::run_full_game_with_timeout(game_arc_clone, game_id, registry_clone).await;
+            if let Err(err) = result {
                 eprintln!("Game {game_id} failed: {err}");
             }
         });
@@ -333,8 +395,28 @@ impl GameRegistry {
             .map(|active: &ActiveGame| active.game.clone())
     }
 
+    pub async fn get_active_game_sender(
+        &self,
+        game_id: GameId,
+    ) -> Option<Sender<(PlayerId, Stream)>> {
+        self.state
+            .lock()
+            .await
+            .active_games
+            .get(&game_id)
+            .map(|active: &ActiveGame| active.reconnection_sender.clone())
+    }
+
     pub async fn remove_game(&self, game_id: GameId) -> Result<()> {
-        self.state.lock().await.active_games.remove(&game_id);
+        if let Some(active_game) = self.state.lock().await.active_games.remove(&game_id) {
+            drop(active_game.reconnection_sender);
+            if let Ok(mut game) = active_game.game.try_lock() {
+                for player_id in game.get_player_ids() {
+                    let _ = game.close_player_connection(player_id).await;
+                }
+            }
+            println!("Cleaned up game {game_id} with all its resources");
+        }
         Ok(())
     }
 

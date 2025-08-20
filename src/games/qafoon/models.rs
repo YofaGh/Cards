@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use crate::{
+    core::GameId,
     models::*,
-    prelude::{BTreeMap, PlayerId, Receiver, Sender, TeamId},
+    prelude::{BTreeMap, PlayerId, Receiver, Sender, Stream, TeamId},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -16,11 +17,13 @@ pub struct GameSharedState {
 
 #[derive(Default)]
 pub struct Qafoon {
+    pub id: GameId,
     pub teams: BTreeMap<TeamId, Team>,
     pub players: BTreeMap<PlayerId, Player>,
     pub players_receiver: BTreeMap<PlayerId, Receiver<GameMessage>>,
     pub players_sender: BTreeMap<PlayerId, Sender<CorrelatedMessage>>,
     pub player_connections: BTreeMap<PlayerId, PlayerConnection>,
+    pub players_reconnection_receiver: Option<Receiver<(PlayerId, Stream)>>,
     pub shared_state: Arc<tokio::sync::RwLock<GameSharedState>>,
     pub field: Vec<PlayerId>,
     pub cards: Vec<Card>,

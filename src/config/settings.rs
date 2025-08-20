@@ -46,6 +46,13 @@ impl Config {
                     "GAME_DURATION_TIMEOUT",
                     DEFAULT_GAME_DURATION_TIMEOUT,
                 )?,
+                player_reconnection: get_env_var_as_duration(
+                    "PLAYER_RECONNECTION_TIMEOUT",
+                    DEFAULT_PLAYER_RECONNECTION_TIMEOUT,
+                )?,
+                player_reconnection_max_retries: env::var("PLAYER_RECONNECTION_MAX_RETRIES")
+                    .unwrap_or(DEFAULT_PLAYER_RECONNECTION_MAX_RETRIES.to_string())
+                    .parse()?,
             },
             database: DatabaseConfig {
                 url: env::var("DATABASE_URL").unwrap_or(DEFAULT_DATABASE_URL.to_string()),
