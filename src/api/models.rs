@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{core::GameId, database::{AdminInfo, UserInfo}};
+use crate::{
+    database::{AdminInfo, UserInfo},
+    prelude::GameId,
+};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct HealthResponse {
