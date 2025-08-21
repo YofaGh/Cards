@@ -37,8 +37,7 @@ pub async fn login(
             }));
         }
     };
-    let tokens: TokenPair = match generate_token(user.id.to_string(), user.username.clone(), false)
-    {
+    let tokens: TokenPair = match generate_token(user.id, user.username.clone(), false) {
         Ok(tokens) => tokens,
         Err(_) => {
             return Err((
@@ -94,7 +93,7 @@ pub async fn admin_login(
             admin: None,
         }));
     }
-    let tokens: TokenPair = match generate_token(admin.id.to_string(), admin.username.clone(), true)
+    let tokens: TokenPair = match generate_token(admin.id, admin.username.clone(), true)
     {
         Ok(tokens) => tokens,
         Err(_) => {
@@ -149,7 +148,7 @@ pub async fn register(
             }));
         }
     };
-    let tokens: TokenPair = match generate_token(user.id.to_string(), user.username.clone(), false)
+    let tokens: TokenPair = match generate_token(user.id, user.username.clone(), false)
     {
         Ok(tokens) => tokens,
         Err(_) => {

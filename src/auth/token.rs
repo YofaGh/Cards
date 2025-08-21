@@ -4,11 +4,11 @@ use jsonwebtoken::errors::Error as JsonWebTokenError;
 use super::{Claims, GameSessionClaims, SessionTokenType, TokenPair};
 use crate::{
     auth::ReconnectClaims,
-    prelude::{get_config, Config},
+    prelude::{get_config, Config, GameId, PlayerId, UserId},
 };
 
 pub fn generate_token(
-    user_id: String,
+    user_id: UserId,
     username: String,
     is_admin: bool,
 ) -> Result<TokenPair, JsonWebTokenError> {
@@ -31,7 +31,7 @@ pub fn generate_token(
 }
 
 pub fn generate_game_session_token(
-    user_id: String,
+    user_id: UserId,
     username: String,
     game_choice: String,
 ) -> Result<TokenPair, JsonWebTokenError> {
@@ -54,8 +54,8 @@ pub fn generate_game_session_token(
 }
 
 pub fn generate_reconnection_token(
-    player_id: String,
-    game_id: String,
+    player_id: PlayerId,
+    game_id: GameId,
 ) -> Result<TokenPair, JsonWebTokenError> {
     let config: &'static Config = get_config();
     let now: DateTime<Utc> = Utc::now();

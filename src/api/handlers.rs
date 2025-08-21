@@ -59,19 +59,7 @@ pub async fn get_available_games(
             ));
         }
     };
-    let user_id: UserId = match claims.sub.parse() {
-        Ok(id) => id,
-        Err(_) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse {
-                    success: false,
-                    message: "Invalid token".to_string(),
-                }),
-            ));
-        }
-    };
-    match user_repo.get_user_by_id(user_id).await {
+    match user_repo.get_user_by_id(claims.sub).await {
         Ok(Some(_)) => {
             let available_games: Vec<String> =
                 crate::core::get_game_registry().get_available_games();
@@ -119,19 +107,7 @@ pub async fn join_game_queue(
             ));
         }
     };
-    let user_id: UserId = match claims.sub.parse() {
-        Ok(id) => id,
-        Err(_) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse {
-                    success: false,
-                    message: "Invalid token".to_string(),
-                }),
-            ));
-        }
-    };
-    let user: crate::database::User = match user_repo.get_user_by_id(user_id).await {
+    let user: crate::database::User = match user_repo.get_user_by_id(claims.sub).await {
         Ok(Some(user)) => user,
         _ => {
             return Err((
@@ -157,22 +133,19 @@ pub async fn join_game_queue(
             }),
         ));
     }
-    let game_token: crate::auth::TokenPair = match generate_game_session_token(
-        user.id.to_string(),
-        user.username.clone(),
-        payload.game_choice.clone(),
-    ) {
-        Ok(token) => token,
-        Err(_) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    success: false,
-                    message: "Failed to generate game session token".to_string(),
-                }),
-            ));
-        }
-    };
+    let game_token: crate::auth::TokenPair =
+        match generate_game_session_token(user.id, user.username, payload.game_choice.clone()) {
+            Ok(token) => token,
+            Err(_) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        success: false,
+                        message: "Failed to generate game session token".to_string(),
+                    }),
+                ));
+            }
+        };
     Ok(Json(JoinGameResponse {
         success: true,
         game_token: Some(game_token.access_token),

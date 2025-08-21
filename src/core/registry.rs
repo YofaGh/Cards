@@ -70,6 +70,7 @@ impl GameRegistry {
 
     pub async fn add_player_to_queue(
         &self,
+        user_id: UserId,
         username: String,
         game_choice: String,
         mut connection: Stream,
@@ -83,13 +84,8 @@ impl GameRegistry {
                     return Err(err);
                 }
             }
-            let player_id: PlayerId = PlayerId::new_v4();
-            let game_id: GameId = game.get_id();
             let reconnection_token: crate::auth::TokenPair =
-                match crate::auth::generate_reconnection_token(
-                    player_id.to_string(),
-                    game_id.to_string(),
-                ) {
+                match crate::auth::generate_reconnection_token(user_id, game.get_id()) {
                     Ok(token) => token,
                     Err(e) => {
                         if game.get_player_count() == 0 {
@@ -117,7 +113,7 @@ impl GameRegistry {
                     "Failed to send reconnection token: {e}"
                 )));
             }
-            match game.add_player(player_id, username.clone(), connection) {
+            match game.add_player(user_id, username.clone(), connection) {
                 Ok(_) => Ok(game.is_full()),
                 Err(err) => {
                     if game.get_player_count() == 0 {
@@ -136,18 +132,12 @@ impl GameRegistry {
 
     pub async fn reconnect_player(
         &self,
-        player_id: String,
-        game_id: String,
+        player_id: PlayerId,
+        game_id: GameId,
         connection: Stream,
     ) -> Result<()> {
-        if let Some(sender) = self
-            .get_active_game_sender(GameId::parse_str(&game_id)?)
-            .await
-        {
-            if let Err(err) = sender
-                .send((PlayerId::parse_str(&player_id)?, connection))
-                .await
-            {
+        if let Some(sender) = self.get_active_game_sender(game_id).await {
+            if let Err(err) = sender.send((player_id, connection)).await {
                 return Err(Error::Other(format!("Failed to reconnect player: {err}")));
             }
         }

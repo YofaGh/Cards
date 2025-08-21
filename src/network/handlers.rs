@@ -53,7 +53,7 @@ pub async fn handle_client(connection: &mut Stream) -> Result<SessionTokenType> 
     }
 }
 
-pub fn get_game_session_info(claims: GameSessionClaims) -> Result<(String, String)> {
+pub fn get_game_session_info(claims: GameSessionClaims) -> Result<(UserId, String, String)> {
     let now: usize = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| Error::Other("System time error".to_string()))?
@@ -61,10 +61,10 @@ pub fn get_game_session_info(claims: GameSessionClaims) -> Result<(String, Strin
     if claims.exp < now {
         return Err(Error::Other("Game session token expired".to_string()));
     }
-    Ok((claims.username, claims.game_choice))
+    Ok((claims.sub, claims.username, claims.game_choice))
 }
 
-pub fn get_reconnection_info(claims: ReconnectClaims) -> Result<(String, String)> {
+pub fn get_reconnection_info(claims: ReconnectClaims) -> Result<(PlayerId, GameId)> {
     let now: usize = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| Error::Other("System time error".to_string()))?
@@ -96,10 +96,11 @@ pub async fn init_game_server() -> Result<JoinHandle<()>> {
                         match handle_client(&mut tls_stream).await {
                             Ok(SessionTokenType::GameSession(claims)) => {
                                 match get_game_session_info(claims) {
-                                    Ok((username, game_choice)) => {
+                                    Ok((user_id, username, game_choice)) => {
                                         println!("Player {username} wants to play {game_choice}");
                                         if let Err(err) = crate::core::get_game_registry()
                                             .add_player_to_queue(
+                                                user_id,
                                                 username.clone(),
                                                 game_choice.clone(),
                                                 tls_stream,
@@ -122,8 +123,8 @@ pub async fn init_game_server() -> Result<JoinHandle<()>> {
                                         );
                                         if let Err(err) = crate::core::get_game_registry()
                                             .reconnect_player(
-                                                player_id.clone(),
-                                                game_id.clone(),
+                                                player_id,
+                                                game_id,
                                                 tls_stream,
                                             )
                                             .await

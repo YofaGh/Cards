@@ -19,11 +19,7 @@ pub async fn admin_auth_middleware(
     if !claims.is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
-    let admin_id: AdminId = match claims.sub.parse::<AdminId>() {
-        Ok(id) => id,
-        _ => return Err(StatusCode::UNAUTHORIZED),
-    };
-    let admin: crate::database::Admin = match admin_repo.get_admin_by_id(admin_id).await {
+    let admin: crate::database::Admin = match admin_repo.get_admin_by_id(claims.sub).await {
         Ok(Some(admin)) => admin,
         _ => return Err(StatusCode::FORBIDDEN),
     };
