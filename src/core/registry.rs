@@ -7,7 +7,12 @@ use std::{
 };
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::{games::*, models::Player, prelude::*};
+use crate::{
+    games::*,
+    models::{UserSession, UserSessionStatus},
+    network::{close_connection, send_message},
+    prelude::*,
+};
 
 pub struct GameQueue {
     pub game_type: String,
@@ -24,6 +29,7 @@ pub struct ActiveGame {
     pub started_at: SystemTime,
     pub timeout_at: Option<SystemTime>,
     pub reconnection_sender: Sender<(PlayerId, Stream)>,
+    pub player_ids: Vec<PlayerId>,
 }
 
 #[derive(Clone)]
@@ -32,9 +38,11 @@ pub struct GameRegistry {
     state: Arc<Mutex<RegistryState>>,
 }
 
+#[derive(Default)]
 struct RegistryState {
     active_games: HashMap<GameId, ActiveGame>,
     game_queues: HashMap<String, GameQueue>,
+    user_sessions: HashMap<UserId, UserSession>,
 }
 
 impl Default for GameRegistry {
@@ -44,6 +52,7 @@ impl Default for GameRegistry {
             state: Arc::new(Mutex::new(RegistryState {
                 active_games: HashMap::new(),
                 game_queues: HashMap::new(),
+                user_sessions: HashMap::new(),
             })),
         }
     }
@@ -55,10 +64,7 @@ impl GameRegistry {
         factories.insert("Qafoon".to_string(), Qafoon::boxed_new);
         let registry: GameRegistry = Self {
             factories: Arc::new(factories),
-            state: Arc::new(Mutex::new(RegistryState {
-                active_games: HashMap::new(),
-                game_queues: HashMap::new(),
-            })),
+            state: Arc::new(Mutex::new(RegistryState::default())),
         };
         registry.start_cleanup_service();
         registry
@@ -68,6 +74,18 @@ impl GameRegistry {
         self.factories.keys().cloned().collect()
     }
 
+    pub async fn is_user_in_game(&self, user_id: UserId) -> bool {
+        self.state.lock().await.user_sessions.contains_key(&user_id)
+    }
+
+    pub async fn get_user_session(&self, user_id: UserId) -> Option<UserSession> {
+        self.state.lock().await.user_sessions.get(&user_id).cloned()
+    }
+
+    async fn remove_user_session(&self, user_id: UserId) {
+        self.state.lock().await.user_sessions.remove(&user_id);
+    }
+
     pub async fn add_player_to_queue(
         &self,
         user_id: UserId,
@@ -75,8 +93,24 @@ impl GameRegistry {
         game_choice: String,
         mut connection: Stream,
     ) -> Result<()> {
+        {
+            let state: MutexGuard<RegistryState> = self.state.lock().await;
+            if let Some(existing_session) = state.user_sessions.get(&user_id) {
+                let message: GameMessage = match existing_session.status {
+                    UserSessionStatus::InQueue => GameMessage::AlreadyInQueueError {
+                        game_type: existing_session.game_type.clone(),
+                    },
+                    UserSessionStatus::InGame => GameMessage::AlreadyInGameError {
+                        game_type: existing_session.game_type.clone(),
+                    },
+                };
+                let _ = send_message(&mut connection, &message).await;
+                let _ = close_connection(&mut connection).await;
+                return Err(Error::Other("User already in game".to_string()));
+            }
+        }
         let game_arc: Arc<Mutex<BoxGame>> = self.get_or_create_queue(&game_choice).await?;
-        let player_added: bool = {
+        let (game_id, player_added) = {
             let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
             if game.get_player_count() == 0 {
                 if let Err(err) = game.initialize_game() {
@@ -84,8 +118,9 @@ impl GameRegistry {
                     return Err(err);
                 }
             }
+            let game_id: GameId = game.get_id();
             let reconnection_token: crate::auth::TokenPair =
-                match crate::auth::generate_reconnection_token(user_id, game.get_id()) {
+                match crate::auth::generate_reconnection_token(user_id, game_id) {
                     Ok(token) => token,
                     Err(e) => {
                         if game.get_player_count() == 0 {
@@ -97,7 +132,7 @@ impl GameRegistry {
                         )));
                     }
                 };
-            if let Err(e) = crate::network::protocol::send_message(
+            if let Err(e) = send_message(
                 &mut connection,
                 &GameMessage::ReconnectionToken {
                     token: reconnection_token.access_token,
@@ -114,7 +149,7 @@ impl GameRegistry {
                 )));
             }
             match game.add_player(user_id, username.clone(), connection) {
-                Ok(_) => Ok(game.is_full()),
+                Ok(_) => Ok((game_id, game.is_full())),
                 Err(err) => {
                     if game.get_player_count() == 0 {
                         drop(game);
@@ -124,6 +159,20 @@ impl GameRegistry {
                 }
             }
         }?;
+        {
+            self.state.lock().await.user_sessions.insert(
+                user_id,
+                UserSession {
+                    user_id,
+                    username: username.clone(),
+                    game_id,
+                    game_type: game_choice.clone(),
+                    status: UserSessionStatus::InQueue,
+                    joined_at: SystemTime::now(),
+                },
+            );
+        }
+        println!("Added user {username} to queue for {game_choice}");
         if player_added {
             self.promote_full_game(&game_choice, game_arc).await?;
         }
@@ -183,10 +232,19 @@ impl GameRegistry {
         game_choice: &str,
         game_arc: Arc<Mutex<BoxGame>>,
     ) -> Result<()> {
-        let (game_id, reconnection_sender) = {
+        let (game_id, reconnection_sender, player_ids) = {
             let mut game: MutexGuard<BoxGame> = game_arc.lock().await;
-            (game.get_id(), game.setup_reconnection()?)
+            let player_ids: Vec<PlayerId> = game.get_player_ids();
+            (game.get_id(), game.setup_reconnection()?, player_ids)
         };
+        {
+            let mut state: MutexGuard<RegistryState> = self.state.lock().await;
+            for player_id in &player_ids {
+                if let Some(session) = state.user_sessions.get_mut(player_id) {
+                    session.status = UserSessionStatus::InGame;
+                }
+            }
+        }
         let registry_clone: GameRegistry = self.clone();
         let game_arc_clone: Arc<Mutex<BoxGame>> = game_arc.clone();
         {
@@ -201,6 +259,7 @@ impl GameRegistry {
                     started_at: SystemTime::now(),
                     timeout_at: Some(timeout_at),
                     reconnection_sender,
+                    player_ids: player_ids.clone(),
                 };
                 state.active_games.insert(game_id, active_game);
             } else {
@@ -210,8 +269,13 @@ impl GameRegistry {
             }
         }
         tokio::spawn(async move {
-            let result: Result<()> =
-                Self::run_full_game_with_timeout(game_arc_clone, game_id, registry_clone).await;
+            let result: Result<()> = Self::run_full_game_with_timeout(
+                game_arc_clone,
+                game_id,
+                registry_clone,
+                player_ids,
+            )
+            .await;
             if let Err(err) = result {
                 eprintln!("Game {game_id} failed: {err}");
             }
@@ -223,6 +287,7 @@ impl GameRegistry {
         game_arc: Arc<Mutex<BoxGame>>,
         game_id: GameId,
         registry: GameRegistry,
+        player_ids: Vec<PlayerId>,
     ) -> Result<()> {
         let game_result: Result<Result<()>, tokio::time::error::Elapsed> =
             tokio::time::timeout(get_config().timeout.game_duration, async {
@@ -243,37 +308,44 @@ impl GameRegistry {
                 eprintln!("Game {game_id} timed out");
                 if let Ok(mut game) = game_arc.try_lock() {
                     let _ = game.broadcast_message(BroadcastMessage::GameTimeout).await;
-                    let player_ids: Vec<PlayerId> = game
-                        .get_players()
-                        .iter()
-                        .map(|player: &&mut Player| player.id)
-                        .collect();
-                    for player_id in player_ids {
-                        let _ = game.close_player_connection(player_id).await;
+                    for player_id in &player_ids {
+                        let _ = game.close_player_connection(*player_id).await;
                     }
                 }
             }
+        }
+        for player_id in player_ids {
+            registry.remove_user_session(player_id).await;
         }
         registry.remove_game(game_id).await?;
         Ok(())
     }
 
     async fn cleanup_failed_queue(&self, game_choice: &str) {
-        let should_remove: bool = {
+        let (should_remove, user_ids_to_cleanup) = {
             let state: MutexGuard<RegistryState> = self.state.lock().await;
             if let Some(queue) = state.game_queues.get(game_choice) {
                 if let Ok(game) = queue.game.try_lock() {
-                    game.get_player_count() == 0
+                    let player_count: usize = game.get_player_count();
+                    let user_ids: Vec<PlayerId> = if player_count == 0 {
+                        game.get_player_ids()
+                    } else {
+                        vec![]
+                    };
+                    (player_count == 0, user_ids)
                 } else {
-                    false
+                    (false, vec![])
                 }
             } else {
-                false
+                (false, vec![])
             }
         };
         if should_remove {
             let mut state: MutexGuard<RegistryState> = self.state.lock().await;
             state.game_queues.remove(game_choice);
+            for user_id in user_ids_to_cleanup {
+                state.user_sessions.remove(&user_id);
+            }
         }
     }
 
@@ -306,7 +378,7 @@ impl GameRegistry {
                 .filter(|(_, queue)| queue.created_at <= queue_cutoff)
                 .map(|(game_type, queue)| (game_type.clone(), queue.game.clone()))
                 .collect();
-            let finished_games: Vec<(GameId, Arc<Mutex<BoxGame>>)> = state
+            let finished_games: Vec<(GameId, Arc<Mutex<BoxGame>>, Vec<PlayerId>)> = state
                 .active_games
                 .iter()
                 .filter_map(|(game_id, active_game)| {
@@ -320,7 +392,11 @@ impl GameRegistry {
                         .map(|game: MutexGuard<BoxGame>| game.is_finished())
                         .unwrap_or(false);
                     if should_remove_timeout || should_remove_finished {
-                        Some((*game_id, active_game.game.clone()))
+                        Some((
+                            *game_id,
+                            active_game.game.clone(),
+                            active_game.player_ids.clone(),
+                        ))
                     } else {
                         None
                     }
@@ -332,35 +408,35 @@ impl GameRegistry {
         {
             let mut state: MutexGuard<RegistryState> = state_arc.lock().await;
             for (game_type, _) in &expired_queues {
-                state.game_queues.remove(game_type);
+                if let Some(queue) = state.game_queues.remove(game_type) {
+                    if let Ok(game) = queue.game.try_lock() {
+                        for player_id in game.get_player_ids() {
+                            state.user_sessions.remove(&player_id);
+                        }
+                    }
+                }
                 println!("Cleaned up expired queue for {game_type}");
             }
-            for (game_id, _) in &finished_games {
+            for (game_id, _, player_ids) in &finished_games {
                 state.active_games.remove(game_id);
+                for player_id in player_ids {
+                    state.user_sessions.remove(player_id);
+                }
                 println!("Cleaned up finished game {game_id}");
             }
         }
         for (_, game_arc) in expired_queues {
             if let Ok(mut game) = game_arc.try_lock() {
                 let _ = game.broadcast_message(BroadcastMessage::QueueTimeout).await;
-                let player_ids: Vec<PlayerId> = game
-                    .get_players()
-                    .iter()
-                    .map(|player: &&mut Player| player.id)
-                    .collect();
+                let player_ids: Vec<PlayerId> = game.get_player_ids();
                 for player_id in player_ids {
                     let _ = game.close_player_connection(player_id).await;
                 }
             }
         }
-
-        for (_, game_arc) in finished_games {
+        for (_, game_arc, _) in finished_games {
             if let Ok(mut game) = game_arc.try_lock() {
-                let player_ids: Vec<PlayerId> = game
-                    .get_players()
-                    .iter()
-                    .map(|player: &&mut Player| player.id)
-                    .collect();
+                let player_ids: Vec<PlayerId> = game.get_player_ids();
                 for player_id in player_ids {
                     let _ = game.close_player_connection(player_id).await;
                 }
@@ -431,6 +507,17 @@ impl GameRegistry {
 
     pub async fn get_active_games_count(&self) -> usize {
         self.state.lock().await.active_games.len()
+    }
+
+    pub async fn force_remove_user_session(&self, user_id: UserId) -> Result<()> {
+        if let Some(session) = self.state.lock().await.user_sessions.remove(&user_id) {
+            println!(
+                "Force removed user {user_id} from {} session in {}",
+                session.status.as_str(),
+                session.game_type
+            );
+        }
+        Ok(())
     }
 }
 

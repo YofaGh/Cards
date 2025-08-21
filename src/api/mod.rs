@@ -5,7 +5,7 @@ pub mod middleware;
 pub mod models;
 
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use tokio::{net::TcpListener, task::JoinHandle};
@@ -27,6 +27,8 @@ fn create_router(pool: PgPool) -> Router {
         .route("/auth/register", post(auth::register))
         .route("/games/available", get(handlers::get_available_games))
         .route("/games/join", post(handlers::join_game_queue))
+        .route("/games/session/status", get(handlers::get_session_status))
+        .route("/games/session/leave", delete(handlers::leave_game_session))
         .merge(admin_auth_routes)
         .nest("/admin", admin::create_admin_router(admin_repo))
         .with_state(user_repo)

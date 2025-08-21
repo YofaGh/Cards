@@ -10,7 +10,7 @@ use crate::{
     games::*,
     get_player, get_player_field_index, get_player_mut, get_team, get_team_mut,
     models::*,
-    network::protocol::receive_message_halved,
+    network::receive_message_halved,
     prelude::*,
 };
 

@@ -3,7 +3,7 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::{
     auth::{identify_and_decode_token, GameSessionClaims, ReconnectClaims, SessionTokenType},
-    network::protocol::*,
+    network::{close_connection, receive_message, send_message},
     prelude::*,
 };
 
@@ -122,11 +122,7 @@ pub async fn init_game_server() -> Result<JoinHandle<()>> {
                                             "Player {player_id} wants to reconnect to {game_id}"
                                         );
                                         if let Err(err) = crate::core::get_game_registry()
-                                            .reconnect_player(
-                                                player_id,
-                                                game_id,
-                                                tls_stream,
-                                            )
+                                            .reconnect_player(player_id, game_id, tls_stream)
                                             .await
                                         {
                                             eprintln!("Failed to reconnect player {player_id} to game {game_id}: {err}");

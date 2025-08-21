@@ -128,6 +128,12 @@ pub enum GameMessage {
     RemoveCard {
         card: String,
     },
+    AlreadyInQueueError {
+        game_type: String,
+    },
+    AlreadyInGameError {
+        game_type: String,
+    },
 }
 
 impl GameMessage {
@@ -145,6 +151,8 @@ impl GameMessage {
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
             GameMessage::PlayerRequest { .. } => "PlayerRequest".to_string(),
             GameMessage::PlayerResponse { .. } => "PlayerResponse".to_string(),
+            GameMessage::AlreadyInQueueError { .. } => "AlreadyInQueueError".to_string(),
+            GameMessage::AlreadyInGameError { .. } => "AlreadyInGameError".to_string(),
         }
     }
     pub fn set_demand_error(&mut self, new_error: String) {

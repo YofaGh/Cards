@@ -9,7 +9,7 @@ use super::{send_message_to_player, timed_choice};
 use crate::{
     games::INVALID_RESPONSE,
     models::{CorrelatedMessage, Player, PlayerConnection},
-    network::protocol::close_connection,
+    network::close_connection,
     prelude::*,
 };
 
@@ -314,7 +314,7 @@ pub trait Game: Send + Sync {
                     correlated_msg = receiver.recv() => {
                         match correlated_msg {
                             Some(CorrelatedMessage { message, response_tx }) => {
-                                let success = crate::network::protocol::send_message_halved(&mut writer, &message)
+                                let success = crate::network::send_message_halved(&mut writer, &message)
                                     .await;
                                 let _ = response_tx.send(success);
                             }
