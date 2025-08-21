@@ -43,7 +43,7 @@ impl Game for Qafoon {
     fn get_reconnection_receiver(&mut self) -> Result<&mut Receiver<(PlayerId, Stream)>> {
         self.players_reconnection_receiver
             .as_mut()
-            .ok_or_else(|| Error::Other("Reconnection receiver not initialized".to_string()))
+            .ok_or_else(|| Error::Game("Reconnection receiver not initialized".to_string()))
     }
 
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>> {
@@ -112,7 +112,7 @@ impl Game for Qafoon {
 
     fn initialize_game(&mut self) -> Result<()> {
         if self.is_started() {
-            return Err(Error::Other("Game Already Started".to_owned()));
+            return Err(Error::Game("Game Already Started".to_owned()));
         }
         self.generate_teams()?;
         self.generate_cards()?;
@@ -148,12 +148,12 @@ impl Game for Qafoon {
             self.do_team_selection(),
         )
         .await
-        .map_err(|_| Error::Other("Team selection timed out".to_owned()))?
+        .map_err(|_| Error::Game("Team selection timed out".to_owned()))?
     }
 
     fn add_player(&mut self, player_id: PlayerId, name: String, connection: Stream) -> Result<()> {
         if self.is_full() {
-            return Err(Error::Other("Game is Full".to_owned()));
+            return Err(Error::Game("Game is Full".to_owned()));
         }
         self.setup_player_connection(player_id, connection)?;
         let player: Player = Player::new(name, player_id);
@@ -363,7 +363,7 @@ impl Qafoon {
             .teams
             .keys()
             .find(|opposing_team_id: &&TeamId| **opposing_team_id != team_id)
-            .ok_or(Error::Other("Opposing team ID not found".to_owned()))?)
+            .ok_or(Error::Game("Opposing team ID not found".to_owned()))?)
     }
 
     fn get_teams_game_score(&self) -> Vec<(String, usize)> {
@@ -429,7 +429,7 @@ impl Qafoon {
                 .values()
                 .max_by_key(|team: &&Team| team.score)
                 .map(|team: &Team| team.id)
-                .ok_or(Error::Other(
+                .ok_or(Error::Game(
                     "team with highest score was not found".to_owned(),
                 ))?;
             let starter_team_id: TeamId = get_player!(self.players, self.starter)?.team_id;
@@ -476,7 +476,7 @@ impl Qafoon {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
                 Err(err) => {
-                    return Err(Error::Other(format!("Error getting player choice: {err}")))
+                    return Err(Error::Game(format!("Error getting player choice: {err}")))
                 }
             }
         }
@@ -509,7 +509,7 @@ impl Qafoon {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
                 Err(err) => {
-                    return Err(Error::Other(format!("Error getting player choice: {err}")))
+                    return Err(Error::Game(format!("Error getting player choice: {err}")))
                 }
             }
         }
@@ -586,7 +586,7 @@ impl Qafoon {
             .values()
             .max_by_key(|team: &&Team| team.score)
             .map(|team: &Team| team.id)
-            .ok_or_else(|| Error::Other("No teams found".to_owned()))?;
+            .ok_or_else(|| Error::Game("No teams found".to_owned()))?;
         if starter_team_id == highest_scoring_team_id {
             Ok(starter_index)
         } else {
@@ -633,7 +633,7 @@ impl Qafoon {
                         }
                     }
                     Err(err) => {
-                        return Err(Error::Other(format!("Error getting player choice: {err}")))
+                        return Err(Error::Game(format!("Error getting player choice: {err}")))
                     }
                 }
                 self.broadcast_message(BroadcastMessage::Bets { bets: bets.clone() })
@@ -701,7 +701,7 @@ impl Qafoon {
             .values()
             .find(|team: &&Team| team.score >= TARGET_SCORE)
             .map(ToString::to_string)
-            .ok_or(Error::Other(
+            .ok_or(Error::Game(
                 "Team with required score was not found".to_string(),
             ))?;
         self.broadcast_message(BroadcastMessage::GameWinner {
@@ -752,7 +752,7 @@ impl Qafoon {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
                 Err(err) => {
-                    return Err(Error::Other(format!("Error getting player choice: {err}")))
+                    return Err(Error::Game(format!("Error getting player choice: {err}")))
                 }
             }
         }

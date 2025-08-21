@@ -59,7 +59,7 @@ pub fn get_game_session_info(claims: GameSessionClaims) -> Result<(UserId, Strin
         .map_err(|_| Error::Other("System time error".to_string()))?
         .as_secs() as usize;
     if claims.exp < now {
-        return Err(Error::Other("Game session token expired".to_string()));
+        return Err(Error::GameTokenExpired);
     }
     Ok((claims.sub, claims.username, claims.game_choice))
 }
@@ -70,7 +70,7 @@ pub fn get_reconnection_info(claims: ReconnectClaims) -> Result<(PlayerId, GameI
         .map_err(|_| Error::Other("System time error".to_string()))?
         .as_secs() as usize;
     if claims.exp < now {
-        return Err(Error::Other("Game session token expired".to_string()));
+        return Err(Error::GameTokenExpired);
     }
     Ok((claims.sub, claims.game_id))
 }

@@ -106,7 +106,7 @@ impl GameRegistry {
                 };
                 let _ = send_message(&mut connection, &message).await;
                 let _ = close_connection(&mut connection).await;
-                return Err(Error::Other("User already in game".to_string()));
+                return Err(Error::Registry("User already in game".to_string()));
             }
         }
         let game_arc: Arc<Mutex<BoxGame>> = self.get_or_create_queue(&game_choice).await?;
@@ -127,7 +127,7 @@ impl GameRegistry {
                             drop(game);
                             self.cleanup_failed_queue(&game_choice).await;
                         }
-                        return Err(Error::Other(format!(
+                        return Err(Error::Registry(format!(
                             "Failed to generate reconnection token: {e}"
                         )));
                     }
@@ -144,7 +144,7 @@ impl GameRegistry {
                     drop(game);
                     self.cleanup_failed_queue(&game_choice).await;
                 }
-                return Err(Error::Other(format!(
+                return Err(Error::Registry(format!(
                     "Failed to send reconnection token: {e}"
                 )));
             }
@@ -187,7 +187,9 @@ impl GameRegistry {
     ) -> Result<()> {
         if let Some(sender) = self.get_active_game_sender(game_id).await {
             if let Err(err) = sender.send((player_id, connection)).await {
-                return Err(Error::Other(format!("Failed to reconnect player: {err}")));
+                return Err(Error::Registry(format!(
+                    "Failed to reconnect player: {err}"
+                )));
             }
         }
         Ok(())
@@ -215,7 +217,7 @@ impl GameRegistry {
         let factory: &GameFactory = self
             .factories
             .get(game_choice)
-            .ok_or_else(|| Error::Other(format!("Game {game_choice} is not supported")))?;
+            .ok_or_else(|| Error::Registry(format!("Game {game_choice} is not supported")))?;
         let game: Arc<Mutex<BoxGame>> = Arc::new(Mutex::new(factory()));
         let new_queue: GameQueue = GameQueue {
             game_type: game_choice.to_string(),
@@ -263,7 +265,7 @@ impl GameRegistry {
                 };
                 state.active_games.insert(game_id, active_game);
             } else {
-                return Err(Error::Other(format!(
+                return Err(Error::Registry(format!(
                     "Queue for {game_choice} was removed before promotion"
                 )));
             }
