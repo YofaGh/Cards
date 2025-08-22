@@ -6,11 +6,12 @@ use crate::{
     prelude::{BTreeMap, PlayerId, Receiver, Sender, Stream, TeamId},
 };
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct GameSharedState {
     pub game_score: Vec<(String, usize)>,
     pub round_score: Vec<(String, usize)>,
     pub current_hokm: Hokm,
+    pub current_bet: (String, usize),
     pub ground_cards: Vec<(String, String)>,
     pub game_status: GameStatus,
 }
@@ -29,6 +30,7 @@ pub struct Qafoon {
     pub cards: Vec<Card>,
     pub starter: PlayerId,
     pub hokm: Hokm,
+    pub bet: (String, usize),
     pub ground: Ground,
     pub status: GameStatus,
 }

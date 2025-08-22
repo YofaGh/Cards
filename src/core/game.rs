@@ -44,8 +44,10 @@ pub trait Game: Send + Sync {
         req_sender: Sender<CorrelatedMessage>,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<JoinHandle<ReadHalf<Stream>>>;
+    async fn get_semi_state(&self) -> Result<Value>;
     async fn run_game(&mut self) -> Result<()>;
     async fn setup_teams(&mut self) -> Result<()>;
+    async fn send_player_full_state(&mut self, player_id: PlayerId) -> Result<()>;
     async fn update_shared_state(&self) -> Result<()>;
 
     fn is_finished(&self) -> bool {
@@ -250,6 +252,7 @@ pub trait Game: Send + Sync {
                                 {
                                     Ok(_) => {
                                         players_to_reconnect.remove(pos);
+                                        self.send_player_full_state(reconnecting_player_id).await?;
                                     }
                                     Err(e) => {
                                         eprintln!(
@@ -258,17 +261,16 @@ pub trait Game: Send + Sync {
                                     }
                                 }
                             } else if self.get_player(reconnecting_player_id).is_ok() {
-                                if let Err(e) = self
-                                    .reconnect_disconnected_player(
-                                        reconnecting_player_id,
-                                        stream,
-                                    )
-                                    .await
-                                {
-                                    eprintln!(
-                                        "Failed to reconnect existing player {reconnecting_player_id}: {e}"
-                                    );
-                                }
+                                match self.reconnect_disconnected_player(reconnecting_player_id, stream).await {
+                                    Ok(()) => {
+                                        self.send_player_full_state(reconnecting_player_id).await?;
+                                    }
+                                    Err(err) => {
+                                        eprintln!(
+                                            "Failed to reconnect existing player {reconnecting_player_id}: {err}"
+                                        );
+                                    }
+                                };
                             } else {
                                 let _ = close_connection(&mut stream).await;
                             }

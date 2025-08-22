@@ -1,3 +1,4 @@
+use serde_json::Error as SerdeJsonErr;
 use std::{io::Error as IoError, num::ParseIntError, str::ParseBoolError};
 use tokio::time::error::Elapsed;
 
@@ -18,6 +19,7 @@ pub enum Error {
     UserIdNotFound(UserId),
     Validator(String),
     Registry(String),
+    SerdeJson(String),
     GameTokenExpired,
     NoValidCard,
 }
@@ -61,6 +63,7 @@ impl std::fmt::Display for Error {
             | Error::Tls(msg)
             | Error::Timeout(msg)
             | Error::Validator(msg)
+            | Error::SerdeJson(msg)
             | Error::FileOperation(msg) => {
                 write!(f, "{msg}")
             }
@@ -98,5 +101,11 @@ impl From<ParseBoolError> for Error {
 impl From<Elapsed> for Error {
     fn from(_: Elapsed) -> Self {
         Error::Timeout("Operation timed out".to_string())
+    }
+}
+
+impl From<SerdeJsonErr> for Error {
+    fn from(err: SerdeJsonErr) -> Self {
+        Error::SerdeJson(err.to_string())
     }
 }

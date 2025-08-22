@@ -129,12 +129,31 @@ impl Game for Qafoon {
         Ok(())
     }
 
+    async fn get_semi_state(&self) -> Result<Value> {
+        let state: tokio::sync::RwLockReadGuard<GameSharedState> = self.shared_state.read().await;
+        let json_value: Value = serde_json::to_value(state.clone())?;
+        Ok(json_value)
+    }
+
+    async fn send_player_full_state(&mut self, player_id: PlayerId) -> Result<()> {
+        let mut semi_state: Value = self.get_semi_state().await?;
+        let player: &Player = self.get_player(player_id)?;
+        semi_state["player_cards"] = serde_json::to_value(player.cards.clone())?;
+        self.send_message_to_player(
+            player_id,
+            player.name.clone(),
+            GameMessage::FullState { state: semi_state },
+        )
+        .await
+    }
+
     async fn update_shared_state(&self) -> Result<()> {
         let mut state: tokio::sync::RwLockWriteGuard<GameSharedState> =
             self.shared_state.write().await;
         state.game_score = self.get_teams_game_score();
         state.round_score = self.get_teams_round_score();
         state.current_hokm = self.hokm.clone();
+        state.current_bet = self.bet.clone();
         state.ground_cards = self.get_ground_cards().unwrap_or_default();
         state.game_status = self.status.clone();
         Ok(())
@@ -227,6 +246,10 @@ impl Game for Qafoon {
                                                 hokm: shared_state.read().await.current_hokm.code()
                                             }
                                         },
+                                        PlayerRequest::CurrentBet => {
+                                            let (bettor, bet) = shared_state.read().await.current_bet.clone();
+                                            PlayerResponse::CurrentBet { bettor, bet }
+                                        }
                                         PlayerRequest::GroundCards => {
                                             PlayerResponse::GroundCards {
                                                 ground_cards: shared_state.read().await.ground_cards.clone()
@@ -235,6 +258,11 @@ impl Game for Qafoon {
                                         PlayerRequest::GameStatus => {
                                             PlayerResponse::GameStatus {
                                                 game_status: shared_state.read().await.game_status.clone()
+                                            }
+                                        },
+                                        PlayerRequest::SemiState => {
+                                            PlayerResponse::SemiState {
+                                                state: serde_json::to_value(shared_state.read().await.clone()).unwrap_or_default()
                                             }
                                         }
                                     };
@@ -475,9 +503,7 @@ impl Qafoon {
                 Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
-                Err(err) => {
-                    return Err(Error::Game(format!("Error getting player choice: {err}")))
-                }
+                Err(err) => return Err(Error::Game(format!("Error getting player choice: {err}"))),
             }
         }
         get_team_mut!(self.teams, team_id)?
@@ -508,9 +534,7 @@ impl Qafoon {
                 Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
-                Err(err) => {
-                    return Err(Error::Game(format!("Error getting player choice: {err}")))
-                }
+                Err(err) => return Err(Error::Game(format!("Error getting player choice: {err}"))),
             }
         }
     }
@@ -600,9 +624,9 @@ impl Qafoon {
     ) -> Result<(usize, PlayerId, TeamId)> {
         let mut highest_bet_option: Option<usize> = None;
         let mut highest_bettor_id: PlayerId = PlayerId::nil();
-        let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
         let round_starter_index: usize = self.get_bettor_starter_index()?;
         loop {
+            let mut bets: Vec<(String, PlayerChoice)> = Vec::new();
             for player_id in self
                 .get_field()
                 .into_iter()
@@ -655,9 +679,11 @@ impl Qafoon {
                     (player_name, team_id)
                 };
                 self.broadcast_message(BroadcastMessage::BetWinner {
-                    bet_winner: (name, highest_bet),
+                    bet_winner: (name.clone(), highest_bet),
                 })
                 .await?;
+                self.bet = (name, highest_bet);
+                self.update_shared_state().await?;
                 return Ok((highest_bet, highest_bettor_id, team_id));
             }
         }
@@ -751,9 +777,7 @@ impl Qafoon {
                 Ok(_) => {
                     message.set_demand_error(INVALID_RESPONSE.to_owned());
                 }
-                Err(err) => {
-                    return Err(Error::Game(format!("Error getting player choice: {err}")))
-                }
+                Err(err) => return Err(Error::Game(format!("Error getting player choice: {err}"))),
             }
         }
     }

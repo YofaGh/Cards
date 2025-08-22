@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::prelude::Value;
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub enum Hokm {
     Spades,
@@ -134,6 +136,12 @@ pub enum GameMessage {
     AlreadyInGameError {
         game_type: String,
     },
+    SemiState {
+        state: Value,
+    },
+    FullState {
+        state: Value,
+    },
 }
 
 impl GameMessage {
@@ -153,6 +161,8 @@ impl GameMessage {
             GameMessage::PlayerResponse { .. } => "PlayerResponse".to_string(),
             GameMessage::AlreadyInQueueError { .. } => "AlreadyInQueueError".to_string(),
             GameMessage::AlreadyInGameError { .. } => "AlreadyInGameError".to_string(),
+            GameMessage::SemiState { .. } => "SemiState".to_string(),
+            GameMessage::FullState { .. } => "FullState".to_string(),
         }
     }
     pub fn set_demand_error(&mut self, new_error: String) {
@@ -225,8 +235,10 @@ pub enum PlayerRequest {
     GameScore,
     RoundScore,
     CurrentHokm,
+    CurrentBet,
     GroundCards,
     GameStatus,
+    SemiState,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -234,6 +246,8 @@ pub enum PlayerResponse {
     GameScore { teams_score: Vec<(String, usize)> },
     RoundScore { teams_score: Vec<(String, usize)> },
     CurrentHokm { hokm: String },
+    CurrentBet { bettor: String, bet: usize },
     GroundCards { ground_cards: Vec<(String, String)> },
     GameStatus { game_status: GameStatus },
+    SemiState { state: Value },
 }
