@@ -303,7 +303,11 @@ impl GameRegistry {
             Ok(Err(err)) => {
                 eprintln!("Game {game_id} failed: {err}");
                 if let Ok(mut game) = game_arc.try_lock() {
-                    let _ = game.broadcast_message(BroadcastMessage::GameError).await;
+                    let _ = game
+                        .broadcast_message(BroadcastMessage::GameError {
+                            error: err.to_string(),
+                        })
+                        .await;
                 }
             }
             Err(_) => {

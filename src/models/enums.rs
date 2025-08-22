@@ -201,9 +201,8 @@ impl DemandMessage {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BroadcastMessage {
     GameStarting,
-    GameError,
+    GameError { error: String },
     GameTimeout,
-    ServerShutdown,
     QueueTimeout,
     TeamSelectionStarting,
     EmptyGround,
