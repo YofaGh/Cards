@@ -138,7 +138,7 @@ impl Game for Qafoon {
     async fn send_player_full_state(&mut self, player_id: PlayerId) -> Result<()> {
         let mut semi_state: Value = self.get_semi_state().await?;
         let player: &Player = self.get_player(player_id)?;
-        semi_state["player_cards"] = serde_json::to_value(player.cards.clone())?;
+        semi_state["player_cards"] = serde_json::to_value(code_cards(&player.cards))?;
         self.send_message_to_player(
             player_id,
             player.name.clone(),

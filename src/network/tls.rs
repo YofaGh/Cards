@@ -42,13 +42,13 @@ pub fn init_crypto_provider() {
 }
 
 fn load_tls_config() -> Result<Arc<ServerConfig>> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let cert_file: Vec<u8> = read_file(&config.tls.cert)?;
     let key_file: Vec<u8> = read_file(&config.tls.key)?;
-    let cert_chain: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_file.as_slice())
+    let cert_chain: Vec<CertificateDer> = rustls_pemfile::certs(&mut cert_file.as_slice())
         .collect::<Result<Vec<_>, IoError>>()
         .map_err(|err: IoError| Error::Tls(format!("Failed to parse certificates: {err}")))?;
-    let keys: Vec<PrivateKeyDer<'static>> =
+    let keys: Vec<PrivateKeyDer> =
         rustls_pemfile::pkcs8_private_keys(&mut key_file.as_slice())
             .map(|key| key.map(PrivateKeyDer::Pkcs8))
             .collect::<Result<Vec<_>, IoError>>()
@@ -56,7 +56,7 @@ fn load_tls_config() -> Result<Arc<ServerConfig>> {
     if keys.is_empty() {
         return Err(Error::Tls("No private keys found".to_string()));
     }
-    let private_key: PrivateKeyDer<'static> = keys
+    let private_key: PrivateKeyDer = keys
         .into_iter()
         .next()
         .ok_or_else(|| Error::Tls("No private keys available after parsing".to_string()))?;

@@ -53,7 +53,7 @@ fn create_router(pool: PgPool) -> Router {
 }
 
 pub async fn init_api_server(pool: PgPool) -> Result<JoinHandle<()>> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let address: &str = &format!("{}:{}", config.api_server.host, config.api_server.port);
     let api_listener: TcpListener = TcpListener::bind(address)
         .await

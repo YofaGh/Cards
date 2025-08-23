@@ -3,7 +3,7 @@ use sqlx::Error as SqlxError;
 use crate::prelude::*;
 
 pub async fn create_database_pool() -> Result<PgPool> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let pool: Result<PgPool> = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.database.max_connections)
         .min_connections(config.database.min_connections)

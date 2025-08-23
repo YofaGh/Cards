@@ -8,7 +8,7 @@ use crate::{
 };
 
 async fn get_listener() -> Result<TcpListener> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let address: &str = &format!("{}:{}", config.game_server.host, config.game_server.port);
     TcpListener::bind(address)
         .await

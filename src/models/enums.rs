@@ -16,7 +16,7 @@ pub enum Hokm {
 }
 
 impl Hokm {
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
             Hokm::Spades => "Spades",
             Hokm::Hearts => "Hearts",
@@ -29,7 +29,7 @@ impl Hokm {
         }
     }
 
-    pub fn unicode_char(&self) -> &'static str {
+    pub fn unicode_char(&self) -> &str {
         match self {
             Hokm::Spades => "\u{2660}",
             Hokm::Hearts => "\u{2665}",
@@ -136,9 +136,6 @@ pub enum GameMessage {
     AlreadyInGameError {
         game_type: String,
     },
-    SemiState {
-        state: Value,
-    },
     FullState {
         state: Value,
     },
@@ -161,7 +158,6 @@ impl GameMessage {
             GameMessage::PlayerResponse { .. } => "PlayerResponse".to_string(),
             GameMessage::AlreadyInQueueError { .. } => "AlreadyInQueueError".to_string(),
             GameMessage::AlreadyInGameError { .. } => "AlreadyInGameError".to_string(),
-            GameMessage::SemiState { .. } => "SemiState".to_string(),
             GameMessage::FullState { .. } => "FullState".to_string(),
         }
     }

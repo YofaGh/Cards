@@ -357,7 +357,7 @@ impl GameRegistry {
 
     fn start_cleanup_service(&self) {
         let state_arc: Arc<Mutex<RegistryState>> = self.state.clone();
-        let config: &'static Config = get_config();
+        let config: &Config = get_config();
         tokio::spawn(async move {
             let mut interval: tokio::time::Interval =
                 tokio::time::interval(config.game_server.queue_clean_up_interval);
@@ -372,7 +372,7 @@ impl GameRegistry {
 
     async fn cleanup_tick(
         state_arc: &Arc<Mutex<RegistryState>>,
-        config: &'static Config,
+        config: &Config,
     ) -> Result<()> {
         let now: SystemTime = SystemTime::now();
         let queue_cutoff: SystemTime = now - config.timeout.queue_cutoff;

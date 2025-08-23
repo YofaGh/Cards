@@ -12,7 +12,7 @@ pub fn generate_token(
     username: String,
     is_admin: bool,
 ) -> Result<TokenPair, JsonWebTokenError> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: TimeDelta = Duration::hours(config.jwt.expire_time.into());
     let expires_at: DateTime<Utc> = now + expire_time;
@@ -35,7 +35,7 @@ pub fn generate_game_session_token(
     username: String,
     game_choice: String,
 ) -> Result<TokenPair, JsonWebTokenError> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: TimeDelta = Duration::seconds(config.jwt.expire_time.into());
     let expires_at: DateTime<Utc> = now + expire_time;
@@ -57,7 +57,7 @@ pub fn generate_reconnection_token(
     player_id: PlayerId,
     game_id: GameId,
 ) -> Result<TokenPair, JsonWebTokenError> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: TimeDelta = Duration::seconds(config.jwt.expire_time.into());
     let expires_at: DateTime<Utc> = now + expire_time;

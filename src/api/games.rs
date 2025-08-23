@@ -97,7 +97,7 @@ pub async fn join_game_queue(
             ));
         }
     };
-    let registry: &'static GameRegistry = get_game_registry();
+    let registry: &GameRegistry = get_game_registry();
     if let Some(existing_session) = registry.get_user_session(user.id).await {
         return Err((
             StatusCode::CONFLICT,
@@ -179,7 +179,7 @@ pub async fn get_session_status(
     };
     match user_repo.get_user_by_id(claims.sub).await {
         Ok(Some(_)) => {
-            let registry: &'static GameRegistry = get_game_registry();
+            let registry: &GameRegistry = get_game_registry();
             let session: Option<UserSession> = registry.get_user_session(claims.sub).await;
             let session_info: Option<SessionInfo> = session.map(|s: UserSession| SessionInfo {
                 game_type: s.game_type,
@@ -237,7 +237,7 @@ pub async fn leave_game_session(
     };
     match user_repo.get_user_by_id(claims.sub).await {
         Ok(Some(_)) => {
-            let registry: &'static GameRegistry = get_game_registry();
+            let registry: &GameRegistry = get_game_registry();
             if let Some(session) = registry.get_user_session(claims.sub).await {
                 match session.status {
                     UserSessionStatus::InQueue => {
