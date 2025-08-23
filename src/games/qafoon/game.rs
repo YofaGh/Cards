@@ -10,7 +10,6 @@ use crate::{
     games::*,
     get_player, get_player_field_index, get_player_mut, get_team, get_team_mut,
     models::*,
-    network::receive_message_halved,
     prelude::*,
 };
 
@@ -226,7 +225,7 @@ impl Game for Qafoon {
                         println!("Receiver shutting down for player {player_id:?}");
                         break;
                     }
-                    message_result = receive_message_halved(&mut reader) => {
+                    message_result = crate::network::receive_message(&mut reader) => {
                         if let Ok(message) = message_result {
                             match message {
                                 GameMessage::PlayerRequest { request } => {

@@ -316,7 +316,7 @@ pub trait Game: Send + Sync {
                     correlated_msg = receiver.recv() => {
                         match correlated_msg {
                             Some(CorrelatedMessage { message, response_tx }) => {
-                                let success = crate::network::send_message_halved(&mut writer, &message)
+                                let success = crate::network::send_message(&mut writer, &message)
                                     .await;
                                 let _ = response_tx.send(success);
                             }
