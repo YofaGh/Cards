@@ -1,7 +1,6 @@
 use crate::{
-    core::PlayerId,
     models::{CorrelatedMessage, GameMessage},
-    prelude::{BTreeMap, Error, Result},
+    prelude::{Error, PlayerId, Result},
 };
 
 pub trait GetOrError<K, V> {
@@ -9,7 +8,7 @@ pub trait GetOrError<K, V> {
     fn get_mut_or_error(&mut self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&mut V>;
 }
 
-impl<K: Ord, V> GetOrError<K, V> for BTreeMap<K, V> {
+impl<K: std::hash::Hash + Eq, V> GetOrError<K, V> for std::collections::HashMap<K, V> {
     fn get_or_error(&self, key: &K, error_fn: impl FnOnce() -> Error) -> Result<&V> {
         self.get(key).ok_or_else(error_fn)
     }

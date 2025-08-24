@@ -15,11 +15,11 @@ pub struct GameSharedState {
 #[derive(Default)]
 pub struct Qafoon {
     pub id: GameId,
-    pub teams: BTreeMap<TeamId, Team>,
-    pub players: BTreeMap<PlayerId, Player>,
-    pub players_receiver: BTreeMap<PlayerId, Receiver<Result<GameMessage>>>,
-    pub players_sender: BTreeMap<PlayerId, Sender<CorrelatedMessage>>,
-    pub player_connections: BTreeMap<PlayerId, PlayerConnection>,
+    pub teams: HashMap<TeamId, Team>,
+    pub players: HashMap<PlayerId, Player>,
+    pub players_receiver: HashMap<PlayerId, Receiver<Result<GameMessage>>>,
+    pub players_sender: HashMap<PlayerId, Sender<CorrelatedMessage>>,
+    pub player_connections: HashMap<PlayerId, PlayerConnection>,
     pub players_reconnection_receiver: Option<Receiver<(PlayerId, Stream)>>,
     pub shared_state: Arc<tokio::sync::RwLock<GameSharedState>>,
     pub field: Vec<PlayerId>,
