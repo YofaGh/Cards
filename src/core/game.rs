@@ -27,7 +27,10 @@ pub trait Game: Send + Sync {
     fn get_player_count(&self) -> usize;
     fn get_status(&self) -> &GameStatus;
     fn get_player_sender(&self, player_id: PlayerId) -> Result<&Sender<CorrelatedMessage>>;
-    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>>;
+    fn get_player_receiver(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<&mut Receiver<Result<GameMessage>>>;
     fn get_reconnection_receiver(&mut self) -> Result<&mut Receiver<(PlayerId, Stream)>>;
     fn initialize_game(&mut self) -> Result<()>;
     fn is_full(&self) -> bool;
@@ -40,7 +43,7 @@ pub trait Game: Send + Sync {
         &self,
         player_id: PlayerId,
         reader: ReadHalf<Stream>,
-        sender: Sender<GameMessage>,
+        sender: Sender<Result<GameMessage>>,
         req_sender: Sender<CorrelatedMessage>,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<JoinHandle<ReadHalf<Stream>>>;
@@ -61,8 +64,47 @@ pub trait Game: Send + Sync {
     async fn receive_message_from_player(
         &mut self,
         player_id: PlayerId,
+        player_name: String,
     ) -> Result<Option<GameMessage>> {
-        Ok(self.get_player_receiver(player_id)?.recv().await)
+        let max_retries: usize = self.get_player_reconnection_max_retires();
+        let mut attempt: usize = 0;
+        loop {
+            let result: Option<Result<GameMessage>> =
+                self.get_player_receiver(player_id)?.recv().await;
+            match result {
+                Some(Ok(message)) => {
+                    return Ok(Some(message));
+                }
+                Some(Err(_)) => {
+                    attempt += 1;
+                    if attempt > max_retries {
+                        return self
+                            .end_game(format!(
+                                "Player {player_name} failed after {attempt} attempts"
+                            ))
+                            .await
+                            .map(|_| None);
+                    }
+                    tokio::time::sleep(Duration::from_millis(100 * (1 << attempt))).await;
+                    let mut rec: Vec<(PlayerId, String)> = vec![(player_id, player_name.clone())];
+                    let _ = self.handle_player_reconnection(&mut rec).await;
+                    if !rec.is_empty() {
+                        return self
+                            .end_game(format!("Player {player_name} was disconnected"))
+                            .await
+                            .map(|_| None);
+                    }
+                }
+                None => {
+                    return self
+                        .end_game(format!(
+                            "Player {player_name} disconnected (channel closed)"
+                        ))
+                        .await
+                        .map(|_| None);
+                }
+            }
+        }
     }
 
     async fn reconnect_disconnected_player(
@@ -94,7 +136,10 @@ pub trait Game: Send + Sync {
             loop {
                 self.send_message_to_player(player_id, player_name.clone(), message.clone())
                     .await?;
-                match self.receive_message_from_player(player_id).await? {
+                match self
+                    .receive_message_from_player(player_id, player_name.clone())
+                    .await?
+                {
                     Some(GameMessage::PlayerChoice { choice }) => {
                         if choice == "pass" {
                             if passable {
@@ -139,30 +184,27 @@ pub trait Game: Send + Sync {
                 }
             }
         };
-        match timed_choice(operation, player_name.clone()).await {
-            Err(Error::Tcp(_)) => {
-                self.end_game(format!("Player {player_name} left")).await?;
-                Err(Error::Tcp("Player {player_name} left".to_string()))
-            }
-            other => other,
-        }
+        timed_choice(operation, player_name.clone()).await
     }
 
     async fn get_player_team_choice(&mut self, player_id: PlayerId) -> Result<TeamId> {
         let player_name: String = self.get_player(player_id)?.name.clone();
-        let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
-        let mut message: GameMessage = GameMessage::team(
-            available_teams
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect(),
-            String::new(),
-        );
         let operation = async {
             loop {
+                let available_teams: Vec<(TeamId, String)> = self.get_available_teams()?;
+                let mut message: GameMessage = GameMessage::team(
+                    available_teams
+                        .iter()
+                        .map(|(_, name)| name.clone())
+                        .collect(),
+                    String::new(),
+                );
                 self.send_message_to_player(player_id, player_name.clone(), message.clone())
                     .await?;
-                match self.receive_message_from_player(player_id).await? {
+                match self
+                    .receive_message_from_player(player_id, player_name.clone())
+                    .await?
+                {
                     Some(GameMessage::PlayerChoice { choice }) => {
                         if let Some((team_id, _)) =
                             available_teams.iter().find(|(_, name)| *name == choice)
@@ -184,13 +226,7 @@ pub trait Game: Send + Sync {
                 }
             }
         };
-        match timed_choice(operation, player_name.clone()).await {
-            Err(Error::Tcp(_)) => {
-                self.end_game(format!("Player {player_name} left")).await?;
-                Err(Error::Tcp("Player {player_name} left".to_string()))
-            }
-            other => other,
-        }
+        timed_choice(operation, player_name.clone()).await
     }
 
     async fn send_message_to_player(

@@ -55,7 +55,10 @@ impl Game for Qafoon {
         self.player_connections.remove(&player_id)
     }
 
-    fn get_player_receiver(&mut self, player_id: PlayerId) -> Result<&mut Receiver<GameMessage>> {
+    fn get_player_receiver(
+        &mut self,
+        player_id: PlayerId,
+    ) -> Result<&mut Receiver<Result<GameMessage>>> {
         self.players_receiver
             .get_mut(&player_id)
             .ok_or(Error::player_not_found(player_id))
@@ -212,7 +215,7 @@ impl Game for Qafoon {
         &self,
         player_id: PlayerId,
         reader: ReadHalf<Stream>,
-        sender: Sender<GameMessage>,
+        sender: Sender<Result<GameMessage>>,
         req_sender: Sender<CorrelatedMessage>,
         mut shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<JoinHandle<ReadHalf<Stream>>> {
@@ -226,8 +229,8 @@ impl Game for Qafoon {
                         break;
                     }
                     message_result = crate::network::receive_message(&mut reader) => {
-                        if let Ok(message) = message_result {
-                            match message {
+                        let message_result = match message_result {
+                            Ok(message) => match message {
                                 GameMessage::PlayerRequest { request } => {
                                     let response: PlayerResponse = match request {
                                         PlayerRequest::GameScore => {
@@ -266,11 +269,16 @@ impl Game for Qafoon {
                                         }
                                     };
                                     let _ = send_message_to_player(&req_sender, GameMessage::PlayerResponse { response }, player_id).await;
+                                    None
                                 }
-                                _ => {
-                                    let _ = sender.try_send(message);
+                                message => {
+                                    Some(Ok(message))
                                 }
                             }
+                            err => Some(err)
+                        };
+                        if let Some(result) = message_result {
+                            let _ = sender.try_send(result);
                         }
                     }
                 }
