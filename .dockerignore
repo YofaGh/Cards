@@ -1,0 +1,14 @@
+# Ignore build artifacts
+
+# Ignore git history
+.git
+.gitignore
+
+# Ignore IDE-specific files
+.idea
+
+# Ignore environment files - these should be provided at runtime
+
+# Ignore Docker-specific files
+Dockerfile
+.dockerignore
