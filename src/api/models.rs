@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::database::{AdminInfo, UserInfo};
+use crate::{
+    database::{AdminInfo, UserInfo},
+    prelude::GameId,
+};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct HealthResponse {
@@ -61,5 +64,26 @@ pub struct JoinGameResponse {
     pub success: bool,
     pub game_token: Option<String>,
     pub game_choice: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionInfo {
+    pub game_type: String,
+    pub status: String,
+    pub joined_at: u64,
+    pub game_id: GameId,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserSessionStatusResponse {
+    pub success: bool,
+    pub has_active_session: bool,
+    pub session: Option<SessionInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LeaveGameSessionResponse {
+    pub success: bool,
     pub message: String,
 }

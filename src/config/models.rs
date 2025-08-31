@@ -29,6 +29,9 @@ pub struct TimeoutConfig {
     pub team_selection: Duration,
     pub player_choice: Duration,
     pub queue_cutoff: Duration,
+    pub game_duration: Duration,
+    pub player_reconnection: Duration,
+    pub player_reconnection_max_retries: usize,
 }
 
 #[derive(Debug)]

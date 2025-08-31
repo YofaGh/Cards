@@ -1,3 +1,4 @@
+use serde_json::Error as SerdeJsonErr;
 use std::{io::Error as IoError, num::ParseIntError, str::ParseBoolError};
 use tokio::time::error::Elapsed;
 
@@ -6,6 +7,8 @@ use crate::core::{PlayerId, TeamId, UserId};
 #[derive(Debug)]
 pub enum Error {
     Config(Vec<String>),
+    Database(String),
+    Game(String),
     InvalidResponse(String, String),
     Other(String),
     Tcp(String),
@@ -14,6 +17,10 @@ pub enum Error {
     FileOperation(String),
     Timeout(String),
     UserIdNotFound(UserId),
+    Validator(String),
+    Registry(String),
+    SerdeJson(String),
+    GameTokenExpired,
     NoValidCard,
 }
 
@@ -49,9 +56,14 @@ impl std::fmt::Display for Error {
         match self {
             Error::Other(msg)
             | Error::Tcp(msg)
+            | Error::Database(msg)
+            | Error::Game(msg)
             | Error::RmpSerde(msg)
+            | Error::Registry(msg)
             | Error::Tls(msg)
             | Error::Timeout(msg)
+            | Error::Validator(msg)
+            | Error::SerdeJson(msg)
             | Error::FileOperation(msg) => {
                 write!(f, "{msg}")
             }
@@ -62,6 +74,7 @@ impl std::fmt::Display for Error {
             Error::InvalidResponse(req, res) => {
                 write!(f, "Expected {res} type from client, got {req} type")
             }
+            Error::GameTokenExpired => write!(f, "game session has token expired"),
             Error::NoValidCard => write!(f, "No valid card was found"),
         }
     }
@@ -88,5 +101,11 @@ impl From<ParseBoolError> for Error {
 impl From<Elapsed> for Error {
     fn from(_: Elapsed) -> Self {
         Error::Timeout("Operation timed out".to_string())
+    }
+}
+
+impl From<SerdeJsonErr> for Error {
+    fn from(err: SerdeJsonErr) -> Self {
+        Error::SerdeJson(err.to_string())
     }
 }

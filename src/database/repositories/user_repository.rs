@@ -33,7 +33,7 @@ impl UserRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to create user: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to create user: {err}")))?;
         Ok(User {
             id: row.id,
             email: row.email,
@@ -57,7 +57,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to remove user: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to remove user: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -75,7 +75,7 @@ impl UserRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to get user by id: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to get user by id: {err}")))?;
         Ok(row.map(|row| User {
             id: row.id,
             email: row.email,
@@ -103,7 +103,7 @@ impl UserRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to get user by id: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to get user by id: {err}")))?;
         Ok(row.map(|row| User {
             id: row.id,
             email: row.email,
@@ -128,7 +128,7 @@ impl UserRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|err: SqlxError| {
-            Error::Other(format!("Failed to check email existence: {err}"))
+            Error::Database(format!("Failed to check email existence: {err}"))
         })?;
         Ok(count.count.unwrap_or(0) > 0)
     }
@@ -141,7 +141,7 @@ impl UserRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|err: SqlxError| {
-            Error::Other(format!("Failed to check username existence: {err}"))
+            Error::Database(format!("Failed to check username existence: {err}"))
         })?;
         Ok(count.count.unwrap_or(0) > 0)
     }
@@ -169,7 +169,7 @@ impl UserRepository {
             if matches!(err, sqlx::Error::RowNotFound) {
                 Error::UserIdNotFound(user_id)
             } else {
-                Error::Other(format!("Failed to update profile: {err}"))
+                Error::Database(format!("Failed to update profile: {err}"))
             }
         })?;
         Ok(User {
@@ -196,7 +196,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to update password: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to update password: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -217,7 +217,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to update game stats: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to update game stats: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -231,7 +231,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to verify email: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to verify email: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -245,7 +245,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to update last login: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to update last login: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -259,7 +259,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to lock user: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to lock user: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }
@@ -273,7 +273,7 @@ impl UserRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to unlock user: {err}")))?;
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to unlock user: {err}")))?;
         if result.rows_affected() == 0 {
             return Err(Error::UserIdNotFound(user_id));
         }

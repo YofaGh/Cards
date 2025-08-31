@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::prelude::Value;
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub enum Hokm {
     Spades,
@@ -14,7 +16,7 @@ pub enum Hokm {
 }
 
 impl Hokm {
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
             Hokm::Spades => "Spades",
             Hokm::Hearts => "Hearts",
@@ -27,7 +29,7 @@ impl Hokm {
         }
     }
 
-    pub fn unicode_char(&self) -> &'static str {
+    pub fn unicode_char(&self) -> &str {
         match self {
             Hokm::Spades => "\u{2660}",
             Hokm::Hearts => "\u{2665}",
@@ -107,10 +109,19 @@ pub enum GameMessage {
     Cards {
         player_cards: Vec<String>,
     },
+    PlayerRequest {
+        request: PlayerRequest,
+    },
+    PlayerResponse {
+        response: PlayerResponse,
+    },
     AddGroundCards {
         ground_cards: Vec<String>,
     },
     GameSessionToken {
+        token: String,
+    },
+    ReconnectionToken {
         token: String,
     },
     PlayerChoice {
@@ -118,6 +129,15 @@ pub enum GameMessage {
     },
     RemoveCard {
         card: String,
+    },
+    AlreadyInQueueError {
+        game_type: String,
+    },
+    AlreadyInGameError {
+        game_type: String,
+    },
+    FullState {
+        state: Value,
     },
 }
 
@@ -131,8 +151,14 @@ impl GameMessage {
             GameMessage::Cards { .. } => "Cards".to_string(),
             GameMessage::AddGroundCards { .. } => "AddGroundCards".to_string(),
             GameMessage::GameSessionToken { .. } => "GameSessionToken".to_string(),
+            GameMessage::ReconnectionToken { .. } => "ReconnectionToken".to_string(),
             GameMessage::PlayerChoice { .. } => "PlayerChoice".to_string(),
             GameMessage::RemoveCard { .. } => "RemoveCard".to_string(),
+            GameMessage::PlayerRequest { .. } => "PlayerRequest".to_string(),
+            GameMessage::PlayerResponse { .. } => "PlayerResponse".to_string(),
+            GameMessage::AlreadyInQueueError { .. } => "AlreadyInQueueError".to_string(),
+            GameMessage::AlreadyInGameError { .. } => "AlreadyInGameError".to_string(),
+            GameMessage::FullState { .. } => "FullState".to_string(),
         }
     }
     pub fn set_demand_error(&mut self, new_error: String) {
@@ -181,8 +207,11 @@ impl DemandMessage {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BroadcastMessage {
     GameStarting,
+    GameError { error: String },
+    GameTimeout,
     QueueTimeout,
     TeamSelectionStarting,
+    EmptyGround,
     GameCancelled { reason: String },
     HandingOutCards,
     ShufflingCards,
@@ -195,4 +224,26 @@ pub enum BroadcastMessage {
     GameWinner { game_winner: String },
     GameScore { teams_score: Vec<(String, usize)> },
     RoundScore { teams_score: Vec<(String, usize)> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum PlayerRequest {
+    GameScore,
+    RoundScore,
+    CurrentHokm,
+    CurrentBet,
+    GroundCards,
+    GameStatus,
+    SemiState,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum PlayerResponse {
+    GameScore { teams_score: Vec<(String, usize)> },
+    RoundScore { teams_score: Vec<(String, usize)> },
+    CurrentHokm { hokm: String },
+    CurrentBet { bettor: String, bet: usize },
+    GroundCards { ground_cards: Vec<(String, String)> },
+    GameStatus { game_status: GameStatus },
+    SemiState { state: Value },
 }

@@ -13,7 +13,6 @@ pub fn create_admin_router(
         .route("/users/{id}/lock", post(users::lock_user))
         .route("/users/{id}/unlock", post(users::unlock_user))
         .route("/users/{id}", delete(users::delete_user))
-        .route("/health", get(super::handlers::health))
         .layer(axum::middleware::from_fn_with_state(
             admin_repo,
             super::middleware::admin_auth_middleware,

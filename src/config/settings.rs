@@ -42,6 +42,17 @@ impl Config {
                     "QUEUE_CUTOFF_TIMEOUT",
                     DEFAULT_QUEUE_CUTOFF_TIMEOUT,
                 )?,
+                game_duration: get_env_var_as_duration(
+                    "GAME_DURATION_TIMEOUT",
+                    DEFAULT_GAME_DURATION_TIMEOUT,
+                )?,
+                player_reconnection: get_env_var_as_duration(
+                    "PLAYER_RECONNECTION_TIMEOUT",
+                    DEFAULT_PLAYER_RECONNECTION_TIMEOUT,
+                )?,
+                player_reconnection_max_retries: env::var("PLAYER_RECONNECTION_MAX_RETRIES")
+                    .unwrap_or(DEFAULT_PLAYER_RECONNECTION_MAX_RETRIES.to_string())
+                    .parse()?,
             },
             database: DatabaseConfig {
                 url: env::var("DATABASE_URL").unwrap_or(DEFAULT_DATABASE_URL.to_string()),
@@ -131,5 +142,6 @@ pub fn get_config() -> &'static Config {
 pub fn init_config() -> Result<(), Error> {
     let config: Config = Config::from_env()?;
     CONFIG.set(config).expect("Failed to set CONFIG");
+    println!("Initialized configuration successfully");
     Ok(())
 }

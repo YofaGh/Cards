@@ -1,16 +1,28 @@
-use sqlx::{postgres::PgPoolOptions, Error as SqlxError};
+use sqlx::Error as SqlxError;
 
 use crate::prelude::*;
 
 pub async fn create_database_pool() -> Result<PgPool> {
-    let config: &'static Config = get_config();
-    PgPoolOptions::new()
+    let config: &Config = get_config();
+    let pool: Result<PgPool> = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.database.max_connections)
         .min_connections(config.database.min_connections)
         .acquire_timeout(std::time::Duration::from_secs(30))
         .connect(&config.database.url)
         .await
-        .map_err(|err: SqlxError| Error::Other(format!("Failed to connect to database: {err}")))
+        .map_err(|err: SqlxError| Error::Database(format!("Failed to connect to database: {err}")));
+    println!("Connected to database successfully");
+    pool
+}
+
+pub async fn run_migrations(pool: &PgPool) -> Result<()> {
+    sqlx::migrate!("./migrations").run(pool).await.map_err(
+        |err: sqlx::migrate::MigrateError| {
+            Error::Database(format!("Failed to run migrations: {err}"))
+        },
+    )?;
+    println!("Migrations completed successfully");
+    Ok(())
 }
 
 pub async fn test_database_connection(pool: &PgPool) -> Result<()> {
@@ -18,7 +30,8 @@ pub async fn test_database_connection(pool: &PgPool) -> Result<()> {
         .execute(pool)
         .await
         .map_err(|err: SqlxError| {
-            Error::Other(format!("Database connection test failed: {err}"))
+            Error::Database(format!("Database connection test failed: {err}"))
         })?;
+    println!("Database connection test succeeded");
     Ok(())
 }

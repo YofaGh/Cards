@@ -1,15 +1,18 @@
 use chrono::{DateTime, Duration, TimeDelta, Utc};
 use jsonwebtoken::errors::Error as JsonWebTokenError;
 
-use super::{Claims, GameSessionClaims, TokenPair};
-use crate::prelude::{get_config, Config};
+use super::{Claims, GameSessionClaims, SessionTokenType, TokenPair};
+use crate::{
+    auth::ReconnectClaims,
+    prelude::{get_config, Config, GameId, PlayerId, UserId},
+};
 
 pub fn generate_token(
-    user_id: String,
+    user_id: UserId,
     username: String,
     is_admin: bool,
 ) -> Result<TokenPair, JsonWebTokenError> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: TimeDelta = Duration::hours(config.jwt.expire_time.into());
     let expires_at: DateTime<Utc> = now + expire_time;
@@ -28,11 +31,11 @@ pub fn generate_token(
 }
 
 pub fn generate_game_session_token(
-    user_id: String,
+    user_id: UserId,
     username: String,
     game_choice: String,
 ) -> Result<TokenPair, JsonWebTokenError> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let now: DateTime<Utc> = Utc::now();
     let expire_time: TimeDelta = Duration::seconds(config.jwt.expire_time.into());
     let expires_at: DateTime<Utc> = now + expire_time;
@@ -40,6 +43,27 @@ pub fn generate_game_session_token(
         sub: user_id,
         username,
         game_choice,
+        exp: expires_at.timestamp() as usize,
+        iat: now.timestamp() as usize,
+    };
+    let access_token: String = encode_token(&claims)?;
+    Ok(TokenPair {
+        access_token,
+        expires_in: expire_time.num_seconds(),
+    })
+}
+
+pub fn generate_reconnection_token(
+    player_id: PlayerId,
+    game_id: GameId,
+) -> Result<TokenPair, JsonWebTokenError> {
+    let config: &Config = get_config();
+    let now: DateTime<Utc> = Utc::now();
+    let expire_time: TimeDelta = Duration::seconds(config.jwt.expire_time.into());
+    let expires_at: DateTime<Utc> = now + expire_time;
+    let claims: ReconnectClaims = ReconnectClaims {
+        sub: player_id,
+        game_id,
         exp: expires_at.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
@@ -67,4 +91,16 @@ pub fn validate_token<T: for<'de> serde::Deserialize<'de>>(
         &jsonwebtoken::Validation::default(),
     )?;
     Ok(token_data.claims)
+}
+
+pub fn identify_and_decode_token(token: &str) -> crate::core::Result<SessionTokenType> {
+    if let Ok(claims) = validate_token::<GameSessionClaims>(token) {
+        return Ok(SessionTokenType::GameSession(claims));
+    }
+    if let Ok(claims) = validate_token::<ReconnectClaims>(token) {
+        return Ok(SessionTokenType::Reconnection(claims));
+    }
+    Err(crate::errors::Error::Other(
+        "failed to identify game server token".to_string(),
+    ))
 }

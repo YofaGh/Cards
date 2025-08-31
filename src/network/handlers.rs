@@ -1,10 +1,14 @@
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_rustls::TlsAcceptor;
 
-use crate::{network::protocol::*, prelude::*};
+use crate::{
+    auth::{identify_and_decode_token, GameSessionClaims, ReconnectClaims, SessionTokenType},
+    network::{close_connection, receive_message, send_message},
+    prelude::*,
+};
 
 async fn get_listener() -> Result<TcpListener> {
-    let config: &'static Config = get_config();
+    let config: &Config = get_config();
     let address: &str = &format!("{}:{}", config.game_server.host, config.game_server.port);
     TcpListener::bind(address)
         .await
@@ -25,13 +29,8 @@ async fn handshake(connection: &mut Stream) -> Result<()> {
     }
 }
 
-pub async fn handle_client(connection: &mut Stream) -> Result<(String, String)> {
+pub async fn handle_client(connection: &mut Stream) -> Result<SessionTokenType> {
     handshake(connection).await?;
-    let (username, game_choice) = get_game_session_info(connection).await?;
-    Ok((username, game_choice))
-}
-
-pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, String)> {
     send_message(
         connection,
         &GameMessage::demand(DemandMessage::GameSessionToken),
@@ -42,18 +41,7 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
             if token.is_empty() {
                 return Err(Error::Other("Empty game session token".to_string()));
             }
-            let claims: crate::auth::GameSessionClaims = match crate::auth::validate_token(&token) {
-                Ok(claims) => claims,
-                _ => return Err(Error::Other("Invalid game session token".to_string())),
-            };
-            let now: usize = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as usize;
-            if claims.exp < now {
-                return Err(Error::Other("Game session token expired".to_string()));
-            }
-            Ok((claims.username, claims.game_choice))
+            identify_and_decode_token(&token)
         }
         invalid => {
             close_connection(connection).await?;
@@ -65,11 +53,34 @@ pub async fn get_game_session_info(connection: &mut Stream) -> Result<(String, S
     }
 }
 
+pub fn get_game_session_info(claims: GameSessionClaims) -> Result<(UserId, String, String)> {
+    let now: usize = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| Error::Other("System time error".to_string()))?
+        .as_secs() as usize;
+    if claims.exp < now {
+        return Err(Error::GameTokenExpired);
+    }
+    Ok((claims.sub, claims.username, claims.game_choice))
+}
+
+pub fn get_reconnection_info(claims: ReconnectClaims) -> Result<(PlayerId, GameId)> {
+    let now: usize = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| Error::Other("System time error".to_string()))?
+        .as_secs() as usize;
+    if claims.exp < now {
+        return Err(Error::GameTokenExpired);
+    }
+    Ok((claims.sub, claims.game_id))
+}
+
 pub async fn init_game_server() -> Result<JoinHandle<()>> {
     super::tls::init_crypto_provider();
     let tls_acceptor: TlsAcceptor = super::tls::get_tls_acceptor()?;
     let listener: TcpListener = get_listener().await?;
     let game_server: JoinHandle<()> = tokio::spawn(async move {
+        println!("Game server started successfully");
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {
@@ -83,19 +94,43 @@ pub async fn init_game_server() -> Result<JoinHandle<()>> {
                             }
                         };
                         match handle_client(&mut tls_stream).await {
-                            Ok((username, game_choice)) => {
-                                println!("Player {username} wants to play {game_choice}");
-                                if let Err(err) = crate::core::get_game_registry()
-                                    .add_player_to_queue(
-                                        username.clone(),
-                                        game_choice.clone(),
-                                        tls_stream,
-                                    )
-                                    .await
-                                {
-                                    eprintln!(
-                                    "Failed to add player {username} to {game_choice} queue: {err}"
-                                );
+                            Ok(SessionTokenType::GameSession(claims)) => {
+                                match get_game_session_info(claims) {
+                                    Ok((user_id, username, game_choice)) => {
+                                        println!("Player {username} wants to play {game_choice}");
+                                        if let Err(err) = crate::core::get_game_registry()
+                                            .add_player_to_queue(
+                                                user_id,
+                                                username.clone(),
+                                                game_choice.clone(),
+                                                tls_stream,
+                                            )
+                                            .await
+                                        {
+                                            eprintln!("Failed to add player {username} to {game_choice} queue: {err}");
+                                        }
+                                    }
+                                    Err(err) => {
+                                        eprintln!("Client handling failed for {addr}: {err}");
+                                    }
+                                }
+                            }
+                            Ok(SessionTokenType::Reconnection(claims)) => {
+                                match get_reconnection_info(claims) {
+                                    Ok((player_id, game_id)) => {
+                                        println!(
+                                            "Player {player_id} wants to reconnect to {game_id}"
+                                        );
+                                        if let Err(err) = crate::core::get_game_registry()
+                                            .reconnect_player(player_id, game_id, tls_stream)
+                                            .await
+                                        {
+                                            eprintln!("Failed to reconnect player {player_id} to game {game_id}: {err}");
+                                        }
+                                    }
+                                    Err(err) => {
+                                        eprintln!("Client handling failed for {addr}: {err}");
+                                    }
                                 }
                             }
                             Err(err) => {
