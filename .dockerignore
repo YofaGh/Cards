@@ -1,5 +1,4 @@
 # Ignore build artifacts
-/target
 
 # Ignore git history
 .git
@@ -9,7 +8,6 @@
 .idea
 
 # Ignore environment files - these should be provided at runtime
-.env
 
 # Ignore Docker-specific files
 Dockerfile
